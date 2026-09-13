@@ -43,7 +43,7 @@ type FeeStructure = {
   hostel_only: boolean;
   vehicle_area: string | null;
   applicable_to: string | null;
-  pricing_type: string;
+  pricing_type: string | null;
   active: boolean;
   fee_heads?: FeeHead | FeeHead[] | null;
 };
@@ -86,18 +86,23 @@ type CollectionAccount = {
   active: boolean;
 };
 
-type ChargeWithBalance =
-  StudentCharge & {
-    paid: number;
-    balance: number;
-  };
+type ChargeBalance = StudentCharge & {
+  paid: number;
+  balance: number;
+};
+
+type BillItem = {
+  name: string;
+  amount: number;
+  fee_head_id: string | null;
+};
 
 type ReceiptItem = {
   name: string;
   amount: number;
 };
 
-type LastReceipt = {
+type ReceiptData = {
   receiptNo: string;
   student: Student;
   amount: number;
@@ -108,267 +113,188 @@ type LastReceipt = {
 };
 
 const MONTHS = [
-  {
-    value: '04',
-    label: 'April',
-  },
-  {
-    value: '05',
-    label: 'May',
-  },
-  {
-    value: '06',
-    label: 'June',
-  },
-  {
-    value: '07',
-    label: 'July',
-  },
-  {
-    value: '08',
-    label: 'August',
-  },
-  {
-    value: '09',
-    label: 'September',
-  },
-  {
-    value: '10',
-    label: 'October',
-  },
-  {
-    value: '11',
-    label: 'November',
-  },
-  {
-    value: '12',
-    label: 'December',
-  },
-  {
-    value: '01',
-    label: 'January',
-  },
-  {
-    value: '02',
-    label: 'February',
-  },
-  {
-    value: '03',
-    label: 'March',
-  },
+  { value: '04', name: 'April' },
+  { value: '05', name: 'May' },
+  { value: '06', name: 'June' },
+  { value: '07', name: 'July' },
+  { value: '08', name: 'August' },
+  { value: '09', name: 'September' },
+  { value: '10', name: 'October' },
+  { value: '11', name: 'November' },
+  { value: '12', name: 'December' },
+  { value: '01', name: 'January' },
+  { value: '02', name: 'February' },
+  { value: '03', name: 'March' },
 ];
 
-function normalise(
-  value: string | null | undefined
-) {
+function normalize(value: string | null | undefined) {
   return (value || '')
     .trim()
     .toLowerCase()
     .replace(/\s+/g, ' ');
 }
 
-function feeHeadName(
+function money(value: number) {
+  return `₹${Number(value || 0).toLocaleString('en-IN')}`;
+}
+
+function getHeadName(
   head: FeeHead | FeeHead[] | null | undefined
 ) {
-  if (!head) {
-    return 'Fee';
-  }
+  if (!head) return 'Fee';
 
   if (Array.isArray(head)) {
     return head[0]?.name || 'Fee';
   }
 
-  return head.name;
+  return head.name || 'Fee';
 }
 
-function getMonthLabel(
-  month: string
+function getHeadCategory(
+  head: FeeHead | FeeHead[] | null | undefined
 ) {
+  if (!head) return '';
+
+  if (Array.isArray(head)) {
+    return normalize(head[0]?.category);
+  }
+
+  return normalize(head.category);
+}
+
+function getMonthName(month: string) {
   return (
-    MONTHS.find(
-      (item) =>
-        item.value === month
-    )?.label || month
+    MONTHS.find((item) => item.value === month)?.name ||
+    month
   );
 }
 
-function getPeriodDate(
-  year: AcademicYear,
+function getMonthYear(
+  academicYear: AcademicYear,
   month: string
 ) {
-  const startYear = year.start_date
-    ? Number(
-        year.start_date.slice(0, 4)
-      )
+  const startYear = academicYear.start_date
+    ? Number(academicYear.start_date.slice(0, 4))
     : new Date().getFullYear();
 
   const monthNumber = Number(month);
 
-  const actualYear =
-    monthNumber >= 4
-      ? startYear
-      : startYear + 1;
+  const year =
+    monthNumber >= 4 ? startYear : startYear + 1;
 
-  return `${actualYear}-${month}-01`;
+  return year;
 }
 
-function getNextMonth(
-  year: AcademicYear,
-  currentMonth: string
+function getPeriodMonth(
+  academicYear: AcademicYear,
+  month: string
 ) {
-  const current =
-    Number(currentMonth);
+  const year = getMonthYear(academicYear, month);
 
-  const next =
-    current === 3
-      ? 4
-      : current + 1;
-
-  return String(next).padStart(
-    2,
-    '0'
-  );
+  return `${year}-${month}-01`;
 }
 
-function isSchoolFee(
-  structure: FeeStructure
-) {
-  const name = normalise(
-    feeHeadName(
-      structure.fee_heads
-    )
+function getNextMonth(month: string) {
+  const number = Number(month);
+
+  const next = number === 3 ? 4 : number + 1;
+
+  return String(next).padStart(2, '0');
+}
+
+function isMonthly(structure: FeeStructure) {
+  return normalize(structure.frequency) === 'monthly';
+}
+
+function isSchoolFee(structure: FeeStructure) {
+  const name = normalize(
+    getHeadName(structure.fee_heads)
   );
 
-  const category = normalise(
-    Array.isArray(
-      structure.fee_heads
-    )
-      ? structure.fee_heads[0]?.category
-      : structure.fee_heads?.category
+  const category = getHeadCategory(
+    structure.fee_heads
   );
 
   return (
-    name === 'composite fee' ||
     name === 'school fee' ||
+    name === 'composite fee' ||
     category === 'school'
   );
 }
 
-function isHostelFee(
-  structure: FeeStructure
-) {
-  const name = normalise(
-    feeHeadName(
-      structure.fee_heads
-    )
+function isHostelFee(structure: FeeStructure) {
+  const name = normalize(
+    getHeadName(structure.fee_heads)
   );
 
-  const category = normalise(
-    Array.isArray(
-      structure.fee_heads
-    )
-      ? structure.fee_heads[0]?.category
-      : structure.fee_heads?.category
+  const category = getHeadCategory(
+    structure.fee_heads
   );
 
   return (
     name === 'hostel fee' ||
     category === 'hostel' ||
-    structure.hostel_only
+    structure.hostel_only === true
   );
 }
 
-function isVehicleFee(
-  structure: FeeStructure
-) {
-  const name = normalise(
-    feeHeadName(
-      structure.fee_heads
-    )
+function isVehicleFee(structure: FeeStructure) {
+  const name = normalize(
+    getHeadName(structure.fee_heads)
   );
 
-  const category = normalise(
-    Array.isArray(
-      structure.fee_heads
-    )
-      ? structure.fee_heads[0]?.category
-      : structure.fee_heads?.category
+  const category = getHeadCategory(
+    structure.fee_heads
   );
 
   return (
     name === 'vehicle fee' ||
     category === 'vehicle' ||
-    Boolean(
-      structure.vehicle_area
-    )
+    Boolean(structure.vehicle_area)
   );
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
 export default function CollectionPage() {
-  const sb = useMemo(
+  const supabase = useMemo(
     () => supabaseBrowser(),
     []
   );
 
-  const [students, setStudents] =
-    useState<Student[]>([]);
-
-  const [years, setYears] =
-    useState<AcademicYear[]>([]);
-
-  const [heads, setHeads] =
-    useState<FeeHead[]>([]);
-
+  const [students, setStudents] = useState<Student[]>([]);
+  const [years, setYears] = useState<AcademicYear[]>([]);
+  const [heads, setHeads] = useState<FeeHead[]>([]);
   const [structures, setStructures] =
     useState<FeeStructure[]>([]);
-
   const [charges, setCharges] =
     useState<StudentCharge[]>([]);
-
   const [allocations, setAllocations] =
-    useState<PaymentAllocation[]>(
-      []
-    );
-
-  const [payments, setPayments] =
-    useState<Payment[]>([]);
-
+    useState<PaymentAllocation[]>([]);
   const [accounts, setAccounts] =
-    useState<CollectionAccount[]>(
-      []
-    );
+    useState<CollectionAccount[]>([]);
 
-  const [search, setSearch] =
-    useState('');
-
+  const [search, setSearch] = useState('');
   const [selectedStudent, setSelectedStudent] =
     useState<Student | null>(null);
 
   const [selectedYear, setSelectedYear] =
     useState('');
-
   const [selectedMonth, setSelectedMonth] =
     useState('09');
-
-  const [loading, setLoading] =
-    useState(true);
-
-  const [searchLoading, setSearchLoading] =
-    useState(false);
-
-  const [collecting, setCollecting] =
-    useState(false);
-
-  const [generatingNextBill, setGeneratingNextBill] =
-    useState(false);
 
   const [amountReceived, setAmountReceived] =
     useState('');
 
   const [paymentMode, setPaymentMode] =
-    useState<'cash' | 'upi'>(
-      'cash'
-    );
+    useState<'cash' | 'upi'>('cash');
 
   const [collectionAccountId, setCollectionAccountId] =
     useState('');
@@ -376,30 +302,20 @@ export default function CollectionPage() {
   const [collectorName, setCollectorName] =
     useState('');
 
-  const [notes, setNotes] =
-    useState('');
+  const [notes, setNotes] = useState('');
 
-  const [message, setMessage] =
-    useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] =
+    useState(false);
 
-  const [error, setError] =
-    useState('');
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
 
-  const [lastReceipt, setLastReceipt] =
-    useState<LastReceipt | null>(
-      null
-    );
+  const [receipt, setReceipt] =
+    useState<ReceiptData | null>(null);
 
-  const selectedYearData =
-    years.find(
-      (year) =>
-        year.id === selectedYear
-    );
-
-  /*
-   * LOAD EVERYTHING
-   */
-  async function loadInitialData() {
+  async function loadData() {
     setLoading(true);
     setError('');
 
@@ -407,13 +323,12 @@ export default function CollectionPage() {
       studentsResult,
       yearsResult,
       headsResult,
+      structuresResult,
       chargesResult,
-      paymentsResult,
       allocationsResult,
       accountsResult,
-      structuresResult,
     ] = await Promise.all([
-      sb
+      supabase
         .from('students')
         .select(`
           id,
@@ -429,28 +344,17 @@ export default function CollectionPage() {
           vehicle_area,
           student_status
         `)
-        .eq(
-          'student_status',
-          'active'
-        )
-        .order(
-          'admission_no',
-          {
-            ascending: true,
-          }
-        ),
+        .eq('student_status', 'active')
+        .order('admission_no'),
 
-      sb
+      supabase
         .from('academic_years')
         .select('*')
-        .order(
-          'start_date',
-          {
-            ascending: false,
-          }
-        ),
+        .order('start_date', {
+          ascending: false,
+        }),
 
-      sb
+      supabase
         .from('fee_heads')
         .select(`
           id,
@@ -460,64 +364,7 @@ export default function CollectionPage() {
         `)
         .order('name'),
 
-      sb
-        .from('student_charges')
-        .select(`
-          id,
-          student_id,
-          academic_year_id,
-          fee_head_id,
-          charge_name,
-          charge_type,
-          period_month,
-          due_date,
-          amount,
-          notes
-        `),
-
-      sb
-        .from('payments')
-        .select(`
-          id,
-          receipt_no,
-          amount,
-          payment_mode,
-          paid_at,
-          collection_account_id,
-          collector_name,
-          notes
-        `)
-        .order(
-          'paid_at',
-          {
-            ascending: false,
-          }
-        ),
-
-      sb
-        .from('payment_allocations')
-        .select(`
-          id,
-          payment_id,
-          student_charge_id,
-          amount
-        `),
-
-      sb
-        .from('collection_accounts')
-        .select(`
-          id,
-          name,
-          account_type,
-          active
-        `)
-        .eq(
-          'active',
-          true
-        )
-        .order('name'),
-
-      sb
+      supabase
         .from('fee_structures')
         .select(`
           id,
@@ -538,10 +385,42 @@ export default function CollectionPage() {
             is_recurring
           )
         `)
-        .eq(
-          'active',
-          true
-        ),
+        .eq('active', true),
+
+      supabase
+        .from('student_charges')
+        .select(`
+          id,
+          student_id,
+          academic_year_id,
+          fee_head_id,
+          charge_name,
+          charge_type,
+          period_month,
+          due_date,
+          amount,
+          notes
+        `),
+
+      supabase
+        .from('payment_allocations')
+        .select(`
+          id,
+          payment_id,
+          student_charge_id,
+          amount
+        `),
+
+      supabase
+        .from('collection_accounts')
+        .select(`
+          id,
+          name,
+          account_type,
+          active
+        `)
+        .eq('active', true)
+        .order('name'),
     ]);
 
     if (studentsResult.error) {
@@ -568,17 +447,17 @@ export default function CollectionPage() {
       return;
     }
 
-    if (chargesResult.error) {
+    if (structuresResult.error) {
       setError(
-        `Student charges: ${chargesResult.error.message}`
+        `Fee structures: ${structuresResult.error.message}`
       );
       setLoading(false);
       return;
     }
 
-    if (paymentsResult.error) {
+    if (chargesResult.error) {
       setError(
-        `Payments: ${paymentsResult.error.message}`
+        `Student charges: ${chargesResult.error.message}`
       );
       setLoading(false);
       return;
@@ -600,36 +479,31 @@ export default function CollectionPage() {
       return;
     }
 
-    if (structuresResult.error) {
-      setError(
-        `Fee structures: ${structuresResult.error.message}`
-      );
-      setLoading(false);
-      return;
-    }
-
     setStudents(
-      studentsResult.data || []
+      (studentsResult.data || []) as Student[]
     );
 
     setYears(
-      (yearsResult.data ||
-        []) as AcademicYear[]
+      (yearsResult.data || []) as AcademicYear[]
     );
 
     setHeads(
-      (headsResult.data ||
-        []) as FeeHead[]
+      (headsResult.data || []) as FeeHead[]
     );
+
+    const normalizedStructures = (
+      structuresResult.data || []
+    ).map((item: any) => ({
+      ...item,
+      fee_heads: Array.isArray(item.fee_heads)
+        ? item.fee_heads[0] || null
+        : item.fee_heads || null,
+    })) as FeeStructure[];
+
+    setStructures(normalizedStructures);
 
     setCharges(
-      (chargesResult.data ||
-        []) as StudentCharge[]
-    );
-
-    setPayments(
-      (paymentsResult.data ||
-        []) as Payment[]
+      (chargesResult.data || []) as StudentCharge[]
     );
 
     setAllocations(
@@ -642,53 +516,27 @@ export default function CollectionPage() {
         []) as CollectionAccount[]
     );
 
-    const normalizedStructures =
-      (
-        structuresResult.data ||
-        []
-      ).map(
-        (structure) => ({
-          ...structure,
-          fee_heads:
-            Array.isArray(
-              structure.fee_heads
-            )
-              ? structure
-                  .fee_heads[0] ||
-                null
-              : structure.fee_heads ||
-                null,
-        })
-      ) as unknown as FeeStructure[];
-
-    setStructures(
-      normalizedStructures
-    );
-
     const activeYear =
       (yearsResult.data || []).find(
-        (year) =>
+        (year: AcademicYear) =>
           year.is_active
       ) ||
       (yearsResult.data || [])[0];
 
     if (activeYear) {
-      setSelectedYear(
-        activeYear.id
-      );
+      setSelectedYear(activeYear.id);
     }
 
-    const defaultAccount =
-      (accountsResult.data ||
-        [])[0];
+    const firstAccount =
+      (accountsResult.data || [])[0];
 
-    if (defaultAccount) {
+    if (firstAccount) {
       setCollectionAccountId(
-        defaultAccount.id
+        firstAccount.id
       );
 
       setCollectorName(
-        defaultAccount.name
+        firstAccount.name
       );
     }
 
@@ -696,67 +544,53 @@ export default function CollectionPage() {
   }
 
   useEffect(() => {
-    loadInitialData();
+    loadData();
   }, []);
 
-  /*
-   * STUDENT SEARCH
-   */
-  const filteredStudents =
-    students
-      .filter(
-        (student) => {
-          const q =
-            search
-              .toLowerCase()
-              .trim();
+  const selectedYearData =
+    years.find(
+      (year) => year.id === selectedYear
+    ) || null;
 
-          if (!q) {
-            return false;
-          }
+  const searchResults =
+    search.trim().length > 0
+      ? students
+          .filter((student) => {
+            const query =
+              search.trim().toLowerCase();
 
-          return (
-            student.name
-              .toLowerCase()
-              .includes(q) ||
-            student.admission_no
-              .toLowerCase()
-              .includes(q) ||
-            (
-              student.parent_phone ||
-              ''
-            ).includes(q) ||
-            student.class_name
-              .toLowerCase()
-              .includes(q)
-          );
-        }
-      )
-      .slice(0, 10);
+            return (
+              student.name
+                .toLowerCase()
+                .includes(query) ||
+              student.admission_no
+                .toLowerCase()
+                .includes(query) ||
+              student.class_name
+                .toLowerCase()
+                .includes(query) ||
+              (student.parent_phone || '')
+                .toLowerCase()
+                .includes(query)
+            );
+          })
+          .slice(0, 10)
+      : [];
 
-  /*
-   * SELECT STUDENT
-   */
-  function selectStudent(
-    student: Student
-  ) {
-    setSelectedStudent(
-      student
-    );
+  function selectStudent(student: Student) {
+    setSelectedStudent(student);
 
     setSearch(
       `${student.admission_no} — ${student.name}`
     );
 
-    setMessage('');
+    setAmountReceived('');
+    setReceipt(null);
     setError('');
-    setLastReceipt(null);
+    setMessage('');
   }
 
-  /*
-   * PAYMENT AGAINST A CHARGE
-   */
-  function paidAgainstCharge(
+  function getPaidForCharge(
     chargeId: string
   ) {
     return allocations
@@ -766,231 +600,195 @@ export default function CollectionPage() {
           chargeId
       )
       .reduce(
-        (sum, allocation) =>
-          sum +
-          Number(
-            allocation.amount ||
-              0
-          ),
+        (total, allocation) =>
+          total +
+          Number(allocation.amount || 0),
         0
       );
   }
 
-  /*
-   * ALL CHARGES FOR SELECTED STUDENT
-   */
-  const studentCharges =
+  const studentCharges: ChargeBalance[] =
     selectedStudent
       ? charges
           .filter(
             (charge) =>
               charge.student_id ===
                 selectedStudent.id &&
-              (
-                !selectedYear ||
-                charge.academic_year_id ===
-                  selectedYear
-              )
+              charge.academic_year_id ===
+                selectedYear
           )
-          .map(
-            (charge) => {
-              const paid =
-                paidAgainstCharge(
-                  charge.id
-                );
+          .map((charge) => {
+            const paid =
+              getPaidForCharge(charge.id);
 
-              return {
-                ...charge,
-                paid,
-                balance:
-                  Math.max(
-                    0,
-                    Number(
-                      charge.amount
-                    ) - paid
-                  ),
-              };
-            }
-          )
+            const balance = Math.max(
+              0,
+              Number(charge.amount || 0) -
+                paid
+            );
+
+            return {
+              ...charge,
+              paid,
+              balance,
+            };
+          })
       : [];
 
-  /*
-   * CURRENT MONTH
-   */
-  const selectedMonthDate =
-    selectedYearData
-      ? getPeriodDate(
-          selectedYearData,
-          selectedMonth
-        )
-      : '';
-
-  const selectedMonthCharges =
-    studentCharges.filter(
-      (charge) =>
-        charge.period_month ===
-        selectedMonthDate
-    );
-
-  const selectedMonthOutstanding =
-    selectedMonthCharges.reduce(
-      (sum, charge) =>
-        sum + charge.balance,
-      0
-    );
-
-  const selectedMonthTotal =
-    selectedMonthCharges.reduce(
-      (sum, charge) =>
-        sum +
-        Number(
-          charge.amount || 0
-        ),
-      0
-    );
-
-  const selectedMonthPaid =
-    selectedMonthCharges.reduce(
-      (sum, charge) =>
-        sum + charge.paid,
-      0
-    );
-
-  /*
-   * ALL OUTSTANDING FOR SESSION
-   *
-   * Oldest first.
-   */
   const outstandingCharges =
     studentCharges
       .filter(
-        (charge) =>
-          charge.balance > 0
+        (charge) => charge.balance > 0
       )
-      .sort(
-        (a, b) => {
-          const aDate =
-            a.due_date ||
-            a.period_month ||
-            '';
+      .sort((a, b) => {
+        const aDate =
+          a.due_date ||
+          a.period_month ||
+          '';
 
-          const bDate =
-            b.due_date ||
-            b.period_month ||
-            '';
+        const bDate =
+          b.due_date ||
+          b.period_month ||
+          '';
 
-          return aDate.localeCompare(
-            bDate
-          );
-        }
-      );
+        return aDate.localeCompare(
+          bDate
+        );
+      });
 
   const totalOutstanding =
     outstandingCharges.reduce(
-      (sum, charge) =>
-        sum + charge.balance,
+      (total, charge) =>
+        total + charge.balance,
       0
     );
 
-  /*
-   * NEXT MONTH
-   */
-  const nextMonth =
+  const currentPeriod =
     selectedYearData
-      ? getNextMonth(
+      ? getPeriodMonth(
           selectedYearData,
           selectedMonth
         )
       : '';
 
-  const nextMonthDate =
+  const currentMonthCharges =
+    studentCharges.filter(
+      (charge) =>
+        charge.period_month ===
+        currentPeriod
+    );
+
+  const currentMonthTotal =
+    currentMonthCharges.reduce(
+      (total, charge) =>
+        total +
+        Number(charge.amount || 0),
+      0
+    );
+
+  const currentMonthPaid =
+    currentMonthCharges.reduce(
+      (total, charge) =>
+        total + charge.paid,
+      0
+    );
+
+  const currentMonthOutstanding =
+    currentMonthCharges.reduce(
+      (total, charge) =>
+        total + charge.balance,
+      0
+    );
+
+  /*
+   * NEXT BILL
+   */
+
+  const nextMonth = getNextMonth(
+    selectedMonth
+  );
+
+  const nextPeriod =
     selectedYearData
-      ? getPeriodDate(
+      ? getPeriodMonth(
           selectedYearData,
           nextMonth
         )
       : '';
 
-  const nextMonthExistingCharges =
+  const nextMonthCharges =
     studentCharges.filter(
       (charge) =>
         charge.period_month ===
-        nextMonthDate
+        nextPeriod
     );
 
-  const nextMonthExistingTotal =
-    nextMonthExistingCharges.reduce(
-      (sum, charge) =>
-        sum +
-        Number(
-          charge.amount || 0
-        ),
+  const nextMonthChargeBalances =
+    nextMonthCharges.filter(
+      (charge) =>
+        charge.balance > 0
+    );
+
+  const nextMonthTotal =
+    nextMonthCharges.reduce(
+      (total, charge) =>
+        total +
+        Number(charge.amount || 0),
+      0
+    );
+
+  const nextMonthPaid =
+    nextMonthCharges.reduce(
+      (total, charge) =>
+        total + charge.paid,
+      0
+    );
+
+  const nextMonthOutstanding =
+    nextMonthCharges.reduce(
+      (total, charge) =>
+        total + charge.balance,
       0
     );
 
   /*
-   * FEE STRUCTURES FOR SELECTED YEAR
+   * Find configured monthly fees
    */
+
   const yearStructures =
     structures.filter(
       (structure) =>
         structure.academic_year_id ===
-        selectedYear
+        selectedYear &&
+        isMonthly(structure)
     );
 
-  /*
-   * FIND SCHOOL FEE
-   */
   function findSchoolStructure() {
-    if (!selectedStudent) {
-      return null;
-    }
+    if (!selectedStudent) return null;
 
     return (
       yearStructures.find(
         (structure) =>
-          isSchoolFee(
-            structure
-          ) &&
-          normalise(
+          isSchoolFee(structure) &&
+          normalize(
             structure.class_name
           ) ===
-            normalise(
+            normalize(
               selectedStudent.class_name
-            ) &&
-          (
-            structure.frequency ===
-              'Monthly' ||
-            structure.frequency ===
-              'monthly'
-          )
+            )
       ) || null
     );
   }
 
-  /*
-   * FIND HOSTEL FEE
-   */
   function findHostelStructure() {
     return (
       yearStructures.find(
         (structure) =>
-          isHostelFee(
-            structure
-          ) &&
-          (
-            structure.frequency ===
-              'Monthly' ||
-            structure.frequency ===
-              'monthly'
-          )
+          isHostelFee(structure)
       ) || null
     );
   }
 
-  /*
-   * FIND VEHICLE FEE
-   */
   function findVehicleStructure() {
     if (
       !selectedStudent ||
@@ -1000,10 +798,9 @@ export default function CollectionPage() {
       return null;
     }
 
-    const studentArea =
-      normalise(
-        selectedStudent.vehicle_area
-      );
+    const studentArea = normalize(
+      selectedStudent.vehicle_area
+    );
 
     return (
       yearStructures.find(
@@ -1016,23 +813,12 @@ export default function CollectionPage() {
             return false;
           }
 
-          if (
-            structure.frequency !==
-              'Monthly' &&
-            structure.frequency !==
-              'monthly'
-          ) {
-            return false;
-          }
-
           const configuredArea =
-            normalise(
+            normalize(
               structure.vehicle_area
             );
 
-          if (
-            !configuredArea
-          ) {
+          if (!configuredArea) {
             return false;
           }
 
@@ -1051,189 +837,140 @@ export default function CollectionPage() {
     );
   }
 
-  /*
-   * CALCULATE NEXT BILL
-   */
-  const nextBillItems: ReceiptItem[] =
-    [];
-
-  const nextSchool =
+  const schoolStructure =
     findSchoolStructure();
 
-  const nextHostel =
+  const hostelStructure =
     findHostelStructure();
 
-  const nextVehicle =
+  const vehicleStructure =
     findVehicleStructure();
 
+  const nextBillItems: BillItem[] =
+    [];
+
   if (
-    nextSchool &&
-    nextSchool.amount !==
-      null &&
-    nextSchool.pricing_type !==
-      'actual'
+    schoolStructure &&
+    schoolStructure.amount !== null
   ) {
     nextBillItems.push({
-      name:
-        `School Fee — ${
-          selectedStudent?.class_name ||
-          ''
-        }`,
-      amount:
-        Number(
-          nextSchool.amount
-        ),
+      name: `School Fee — ${
+        selectedStudent?.class_name || ''
+      }`,
+      amount: Number(
+        schoolStructure.amount
+      ),
+      fee_head_id:
+        schoolStructure.fee_head_id,
     });
   }
 
   if (
     selectedStudent?.hostel_required &&
-    nextHostel &&
-    nextHostel.amount !==
-      null &&
-    nextHostel.pricing_type !==
-      'actual'
+    hostelStructure &&
+    hostelStructure.amount !== null
   ) {
     nextBillItems.push({
       name: 'Hostel Fee',
-      amount:
-        Number(
-          nextHostel.amount
-        ),
+      amount: Number(
+        hostelStructure.amount
+      ),
+      fee_head_id:
+        hostelStructure.fee_head_id,
     });
   }
 
   if (
     selectedStudent?.vehicle_required &&
-    nextVehicle &&
-    nextVehicle.amount !==
-      null &&
-    nextVehicle.pricing_type !==
-      'actual'
+    vehicleStructure &&
+    vehicleStructure.amount !== null
   ) {
     nextBillItems.push({
-      name:
-        `Vehicle Fee — ${
-          selectedStudent.vehicle_area ||
-          ''
-        }`,
-      amount:
-        Number(
-          nextVehicle.amount
-        ),
+      name: `Vehicle Fee — ${
+        selectedStudent.vehicle_area || ''
+      }`,
+      amount: Number(
+        vehicleStructure.amount
+      ),
+      fee_head_id:
+        vehicleStructure.fee_head_id,
     });
   }
 
-  const calculatedNextBillTotal =
+  const calculatedNextBill =
     nextBillItems.reduce(
-      (sum, item) =>
-        sum + item.amount,
+      (total, item) =>
+        total + item.amount,
       0
     );
 
-  const nextBillAlreadyExists =
-    nextMonthExistingCharges.length >
-    0;
-
-  const nextBillOutstanding =
-    nextMonthExistingCharges.reduce(
-      (sum, charge) =>
-        sum + charge.balance,
-      0
-    );
+  const nextBillExists =
+    nextMonthCharges.length > 0;
 
   /*
-   * GENERATE NEXT MONTH CHARGES
+   * GENERATE NEXT BILL
    */
+
   async function generateNextBill() {
     if (
       !selectedStudent ||
       !selectedYearData
     ) {
+      setError(
+        'Please select a student and academic year.'
+      );
       return;
     }
 
-    if (
-      nextBillAlreadyExists
-    ) {
+    if (nextBillExists) {
       setMessage(
-        `${getMonthLabel(
+        `${getMonthName(
           nextMonth
         )} bill already exists.`
       );
       return;
     }
 
-    if (
-      nextBillItems.length ===
-      0
-    ) {
+    if (nextBillItems.length === 0) {
       setError(
-        'Next bill cannot be generated because the student has no complete monthly fee structure configured.'
+        'No monthly fee structure is configured for this student.'
       );
       return;
     }
 
-    /*
-     * Check whether any required
-     * component is missing.
-     */
-    if (
-      !nextSchool
-    ) {
+    if (!schoolStructure) {
       setError(
-        `No monthly school fee configured for ${selectedStudent.class_name}.`
+        `No monthly school fee is configured for ${selectedStudent.class_name}.`
       );
       return;
     }
 
     if (
       selectedStudent.hostel_required &&
-      !nextHostel
+      !hostelStructure
     ) {
       setError(
-        'Student is a hosteller but no monthly hostel fee is configured.'
+        'This student is marked as a hosteller, but the monthly hostel fee is not configured.'
       );
       return;
     }
 
     if (
       selectedStudent.vehicle_required &&
-      !nextVehicle
+      !vehicleStructure
     ) {
       setError(
-        `No vehicle fee found for route/area "${selectedStudent.vehicle_area || 'not selected'}".`
+        `No vehicle fee is configured for route/area "${selectedStudent.vehicle_area || 'not selected'}".`
       );
       return;
     }
 
-    setGeneratingNextBill(
-      true
-    );
+    setGenerating(true);
     setError('');
     setMessage('');
 
-    const rows: Array<{
-      student_id: string;
-      academic_year_id: string;
-      fee_head_id: string;
-      charge_name: string;
-      charge_type: string;
-      period_month: string;
-      due_date: string;
-      amount: number;
-      notes: string;
-    }> = [];
-
-    if (
-      nextSchool &&
-      nextSchool.fee_head_id &&
-      nextSchool.amount !==
-        null &&
-      nextSchool.pricing_type !==
-        'actual'
-    ) {
-      rows.push({
+    const rows = nextBillItems.map(
+      (item) => ({
         student_id:
           selectedStudent.id,
 
@@ -1241,132 +978,31 @@ export default function CollectionPage() {
           selectedYear,
 
         fee_head_id:
-          nextSchool.fee_head_id,
+          item.fee_head_id,
 
         charge_name:
-          `School Fee — ${selectedStudent.class_name}`,
+          item.name,
 
         charge_type:
           'monthly',
 
         period_month:
-          nextMonthDate,
+          nextPeriod,
 
         due_date:
-          nextMonthDate,
+          nextPeriod,
 
         amount:
-          Number(
-            nextSchool.amount
-          ),
+          item.amount,
 
         notes:
           `Generated from ${selectedYearData.name} fee structure.`,
-      });
-    }
-
-    if (
-      selectedStudent.hostel_required &&
-      nextHostel &&
-      nextHostel.fee_head_id &&
-      nextHostel.amount !==
-        null &&
-      nextHostel.pricing_type !==
-        'actual'
-    ) {
-      rows.push({
-        student_id:
-          selectedStudent.id,
-
-        academic_year_id:
-          selectedYear,
-
-        fee_head_id:
-          nextHostel.fee_head_id,
-
-        charge_name:
-          'Hostel Fee',
-
-        charge_type:
-          'monthly',
-
-        period_month:
-          nextMonthDate,
-
-        due_date:
-          nextMonthDate,
-
-        amount:
-          Number(
-            nextHostel.amount
-          ),
-
-        notes:
-          'Generated because student is marked as hosteller.',
-      });
-    }
-
-    if (
-      selectedStudent.vehicle_required &&
-      nextVehicle &&
-      nextVehicle.fee_head_id &&
-      nextVehicle.amount !==
-        null &&
-      nextVehicle.pricing_type !==
-        'actual'
-    ) {
-      rows.push({
-        student_id:
-          selectedStudent.id,
-
-        academic_year_id:
-          selectedYear,
-
-        fee_head_id:
-          nextVehicle.fee_head_id,
-
-        charge_name:
-          `Vehicle Fee — ${
-            selectedStudent.vehicle_area ||
-            nextVehicle.vehicle_area ||
-            'Route'
-          }`,
-
-        charge_type:
-          'monthly',
-
-        period_month:
-          nextMonthDate,
-
-        due_date:
-          nextMonthDate,
-
-        amount:
-          Number(
-            nextVehicle.amount
-          ),
-
-        notes:
-          'Generated from vehicle route fee structure.',
-      });
-    }
-
-    if (
-      rows.length ===
-      0
-    ) {
-      setError(
-        'No bill components could be generated.'
-      );
-      setGeneratingNextBill(
-        false
-      );
-      return;
-    }
+      })
+    );
 
     const {
       error: insertError,
-    } = await sb
+    } = await supabase
       .from('student_charges')
       .insert(rows);
 
@@ -1374,76 +1010,46 @@ export default function CollectionPage() {
       setError(
         `Could not generate next bill: ${insertError.message}`
       );
-
-      setGeneratingNextBill(
-        false
-      );
+      setGenerating(false);
       return;
     }
 
+    await loadData();
+
     setMessage(
-      `${getMonthLabel(
+      `${getMonthName(
+        nextMonth
+      )} ${getMonthYear(
+        selectedYearData,
         nextMonth
       )} bill generated successfully.`
     );
 
-    await loadInitialData();
-
-    setGeneratingNextBill(
-      false
-    );
+    setGenerating(false);
   }
 
   /*
-   * ALLOCATION PREVIEW
-   *
-   * Oldest dues first.
+   * PAYMENT ALLOCATION PREVIEW
    */
-  const enteredAmount =
-    Number(
-      amountReceived || 0
-    );
 
-  const allocationPreview =
-    outstandingCharges.map(
+  function getAllocationPreview(
+    chargeList: ChargeBalance[],
+    amount: number
+  ) {
+    let remaining = amount;
+
+    return chargeList.map(
       (charge) => {
-        const alreadyAllocated =
-          outstandingCharges
-            .slice(
-              0,
-              outstandingCharges.indexOf(
-                charge
-              )
-            )
-            .reduce(
-              (
-                sum,
-                previous
-              ) =>
-                sum +
-                Math.min(
-                  previous.balance,
-                  Math.max(
-                    0,
-                    enteredAmount -
-                      sum
-                  )
-                ),
-              0
-            );
-
-        const remaining =
-          Math.max(
-            0,
-            enteredAmount -
-              alreadyAllocated
-          );
-
         const allocation =
           Math.min(
             charge.balance,
-            remaining
+            Math.max(
+              0,
+              remaining
+            )
           );
+
+        remaining -= allocation;
 
         return {
           ...charge,
@@ -1451,35 +1057,50 @@ export default function CollectionPage() {
         };
       }
     );
+  }
 
-  const allocationTotal =
-    allocationPreview.reduce(
-      (sum, item) =>
-        sum + item.allocation,
+  const enteredAmount =
+    Number(amountReceived || 0);
+
+  const currentAllocationPreview =
+    getAllocationPreview(
+      outstandingCharges,
+      enteredAmount
+    );
+
+  const currentAllocationTotal =
+    currentAllocationPreview.reduce(
+      (total, item) =>
+        total + item.allocation,
       0
     );
 
   /*
    * RECORD PAYMENT
+   *
+   * This function accepts the exact
+   * charges to pay.
+   *
+   * Therefore it works for both:
+   *
+   * - old/current outstanding
+   * - next bill
    */
-  async function recordPayment() {
-    if (
-      !selectedStudent
-    ) {
+
+  async function recordPaymentForCharges(
+    chargeList: ChargeBalance[],
+    paymentAmount: number
+  ) {
+    if (!selectedStudent) {
       setError(
-        'Select a student first.'
+        'Please select a student first.'
       );
       return;
     }
 
-    const amount =
-      Number(
-        amountReceived
-      );
-
     if (
-      Number.isNaN(amount) ||
-      amount <= 0
+      !paymentAmount ||
+      paymentAmount <= 0
     ) {
       setError(
         'Enter a valid payment amount.'
@@ -1487,30 +1108,40 @@ export default function CollectionPage() {
       return;
     }
 
-    if (
-      totalOutstanding <=
-      0
-    ) {
-      setError(
-        'There is no outstanding bill to collect. Use the Next Bill section below.'
+    const totalAvailable =
+      chargeList.reduce(
+        (total, charge) =>
+          total + charge.balance,
+        0
       );
-      return;
-    }
 
     if (
-      amount >
-      totalOutstanding
+      paymentAmount >
+      totalAvailable
     ) {
       setError(
-        `Payment cannot exceed the total outstanding amount of ₹${totalOutstanding.toLocaleString(
-          'en-IN'
+        `Payment cannot exceed ${money(
+          totalAvailable
         )}.`
       );
       return;
     }
 
+    const preview =
+      getAllocationPreview(
+        chargeList,
+        paymentAmount
+      );
+
+    const allocationsToInsert =
+      preview
+        .filter(
+          (item) =>
+            item.allocation > 0
+        );
+
     if (
-      allocationTotal <=
+      allocationsToInsert.length ===
       0
     ) {
       setError(
@@ -1519,28 +1150,25 @@ export default function CollectionPage() {
       return;
     }
 
-    setCollecting(true);
+    setSaving(true);
     setError('');
     setMessage('');
-    setLastReceipt(null);
+    setReceipt(null);
 
-    /*
-     * Create ONE payment.
-     */
     const {
       data: payment,
       error: paymentError,
-    } = await sb
+    } = await supabase
       .from('payments')
       .insert({
         student_id:
           selectedStudent.id,
 
         academic_year_id:
-          selectedYear ||
-          null,
+          selectedYear || null,
 
-        amount,
+        amount:
+          paymentAmount,
 
         payment_mode:
           paymentMode,
@@ -1582,40 +1210,28 @@ export default function CollectionPage() {
           'Unknown error'
         }`
       );
-
-      setCollecting(false);
+      setSaving(false);
       return;
     }
 
-    /*
-     * Allocate payment oldest-first.
-     */
     const allocationRows =
-      allocationPreview
-        .filter(
-          (item) =>
-            item.allocation >
-            0
-        )
-        .map(
-          (item) => ({
-            payment_id:
-              payment.id,
+      allocationsToInsert.map(
+        (item) => ({
+          payment_id:
+            payment.id,
 
-            student_charge_id:
-              item.id,
+          student_charge_id:
+            item.id,
 
-            amount:
-              item.allocation,
-          })
-        );
+          amount:
+            item.allocation,
+        })
+      );
 
     const {
       error: allocationError,
-    } = await sb
-      .from(
-        'payment_allocations'
-      )
+    } = await supabase
+      .from('payment_allocations')
       .insert(
         allocationRows
       );
@@ -1623,11 +1239,7 @@ export default function CollectionPage() {
     if (
       allocationError
     ) {
-      /*
-       * Roll back the payment
-       * if allocations fail.
-       */
-      await sb
+      await supabase
         .from('payments')
         .delete()
         .eq(
@@ -1636,51 +1248,43 @@ export default function CollectionPage() {
         );
 
       setError(
-        `Payment was not completed because allocation failed: ${allocationError.message}`
+        `Payment was cancelled because allocation failed: ${allocationError.message}`
       );
 
-      setCollecting(false);
+      setSaving(false);
       return;
     }
 
     const receiptItems =
-      allocationPreview
-        .filter(
-          (item) =>
-            item.allocation >
-            0
-        )
-        .map(
-          (item) => ({
-            name:
-              item.charge_name ||
-              feeHeadName(
-                heads.find(
-                  (head) =>
-                    head.id ===
-                    item.fee_head_id
-                ) || null
-              ),
+      allocationsToInsert.map(
+        (item) => ({
+          name:
+            item.charge_name ||
+            getHeadName(
+              heads.find(
+                (head) =>
+                  head.id ===
+                  item.fee_head_id
+              ) || null
+            ),
 
-            amount:
-              item.allocation,
-          })
-        );
+          amount:
+            item.allocation,
+        })
+      );
 
-    setLastReceipt({
+    setReceipt({
       receiptNo:
         payment.receipt_no ||
         `RCPT-${payment.id
-          .slice(
-            0,
-            8
-          )
+          .slice(0, 8)
           .toUpperCase()}`,
 
       student:
         selectedStudent,
 
-      amount,
+      amount:
+        paymentAmount,
 
       mode:
         paymentMode,
@@ -1700,274 +1304,283 @@ export default function CollectionPage() {
     setNotes('');
 
     setMessage(
-      `₹${amount.toLocaleString(
-        'en-IN'
+      `${money(
+        paymentAmount
       )} received successfully.`
     );
 
-    await loadInitialData();
+    await loadData();
 
-    setCollecting(false);
+    setSaving(false);
+  }
+
+  async function receiveCurrentPayment() {
+    if (
+      enteredAmount <= 0
+    ) {
+      setError(
+        'Enter the payment amount.'
+      );
+      return;
+    }
+
+    await recordPaymentForCharges(
+      outstandingCharges,
+      enteredAmount
+    );
   }
 
   /*
    * PAY NEXT BILL
-   *
-   * If next bill does not exist:
-   * 1. Generate it
-   * 2. Refresh charges
-   * 3. Pay it
    */
-  async function generateAndPayNextBill() {
+
+  async function payNextBill() {
     if (
       !selectedStudent ||
       !selectedYearData
     ) {
+      setError(
+        'Please select a student and academic year.'
+      );
       return;
     }
 
-    setGeneratingNextBill(
-      true
-    );
-
-    setError('');
-    setMessage('');
+    let chargesToPay =
+      nextMonthChargeBalances;
 
     /*
-     * If next bill doesn't exist,
-     * create it first.
+     * If the bill does not exist yet,
+     * generate it first.
      */
-    if (
-      !nextBillAlreadyExists
-    ) {
+
+    if (!nextBillExists) {
       if (
-        calculatedNextBillTotal <=
+        calculatedNextBill <=
         0
       ) {
         setError(
-          'Next bill amount is ₹0. Check the student's class, hostel status and vehicle route.'
+          'Next bill amount is ₹0. Check the student class, hostel status and vehicle route.'
         );
-
-        setGeneratingNextBill(
-          false
-        );
-
         return;
       }
 
-      const rows: Array<{
-        student_id: string;
-        academic_year_id: string;
-        fee_head_id: string;
-        charge_name: string;
-        charge_type: string;
-        period_month: string;
-        due_date: string;
-        amount: number;
-        notes: string;
-      }> = [];
+      setGenerating(true);
+      setError('');
+      setMessage('');
 
-      if (
-        nextSchool &&
-        nextSchool.fee_head_id &&
-        nextSchool.amount !==
-          null &&
-        nextSchool.pricing_type !==
-          'actual'
-      ) {
-        rows.push({
-          student_id:
-            selectedStudent.id,
-
-          academic_year_id:
-            selectedYear,
-
-          fee_head_id:
-            nextSchool.fee_head_id,
-
-          charge_name:
-            `School Fee — ${selectedStudent.class_name}`,
-
-          charge_type:
-            'monthly',
-
-          period_month:
-            nextMonthDate,
-
-          due_date:
-            nextMonthDate,
-
-          amount:
-            Number(
-              nextSchool.amount
-            ),
-
-          notes:
-            `Generated from ${selectedYearData.name} fee structure.`,
-        });
+      if (!schoolStructure) {
+        setError(
+          `No monthly school fee is configured for ${selectedStudent.class_name}.`
+        );
+        setGenerating(false);
+        return;
       }
 
       if (
         selectedStudent.hostel_required &&
-        nextHostel &&
-        nextHostel.fee_head_id &&
-        nextHostel.amount !==
-          null &&
-        nextHostel.pricing_type !==
-          'actual'
+        !hostelStructure
       ) {
-        rows.push({
-          student_id:
-            selectedStudent.id,
-
-          academic_year_id:
-            selectedYear,
-
-          fee_head_id:
-            nextHostel.fee_head_id,
-
-          charge_name:
-            'Hostel Fee',
-
-          charge_type:
-            'monthly',
-
-          period_month:
-            nextMonthDate,
-
-          due_date:
-            nextMonthDate,
-
-          amount:
-            Number(
-              nextHostel.amount
-            ),
-
-          notes:
-            'Generated because student is marked as hosteller.',
-        });
+        setError(
+          'This student is marked as a hosteller, but no monthly hostel fee is configured.'
+        );
+        setGenerating(false);
+        return;
       }
 
       if (
         selectedStudent.vehicle_required &&
-        nextVehicle &&
-        nextVehicle.fee_head_id &&
-        nextVehicle.amount !==
-          null &&
-        nextVehicle.pricing_type !==
-          'actual'
-      ) {
-        rows.push({
-          student_id:
-            selectedStudent.id,
-
-          academic_year_id:
-            selectedYear,
-
-          fee_head_id:
-            nextVehicle.fee_head_id,
-
-          charge_name:
-            `Vehicle Fee — ${
-              selectedStudent.vehicle_area ||
-              nextVehicle.vehicle_area ||
-              'Route'
-            }`,
-
-          charge_type:
-            'monthly',
-
-          period_month:
-            nextMonthDate,
-
-          due_date:
-            nextMonthDate,
-
-          amount:
-            Number(
-              nextVehicle.amount
-            ),
-
-          notes:
-            'Generated from vehicle route fee structure.',
-        });
-      }
-
-      if (
-        rows.length ===
-        0
+        !vehicleStructure
       ) {
         setError(
-          'Could not create the next bill. Fee structure is incomplete.'
+          `No vehicle fee is configured for route/area "${selectedStudent.vehicle_area || 'not selected'}".`
         );
-
-        setGeneratingNextBill(
-          false
-        );
-
+        setGenerating(false);
         return;
       }
 
+      const rows =
+        nextBillItems.map(
+          (item) => ({
+            student_id:
+              selectedStudent.id,
+
+            academic_year_id:
+              selectedYear,
+
+            fee_head_id:
+              item.fee_head_id,
+
+            charge_name:
+              item.name,
+
+            charge_type:
+              'monthly',
+
+            period_month:
+              nextPeriod,
+
+            due_date:
+              nextPeriod,
+
+            amount:
+              item.amount,
+
+            notes:
+              `Generated from ${selectedYearData.name} fee structure.`,
+          })
+        );
+
       const {
         error: insertError,
-      } = await sb
+      } = await supabase
         .from(
           'student_charges'
         )
         .insert(rows);
 
-      if (
-        insertError
-      ) {
+      if (insertError) {
         setError(
-          `Next bill generation failed: ${insertError.message}`
+          `Could not generate next bill: ${insertError.message}`
         );
-
-        setGeneratingNextBill(
-          false
-        );
-
+        setGenerating(false);
         return;
       }
 
-      await loadInitialData();
+      await loadData();
+
+      /*
+       * Re-read the generated charges
+       * from the current state after
+       * reload.
+       *
+       * Since state updates are async,
+       * fetch them directly here.
+       */
+
+      const {
+        data: freshCharges,
+        error: freshError,
+      } = await supabase
+        .from('student_charges')
+        .select(`
+          id,
+          student_id,
+          academic_year_id,
+          fee_head_id,
+          charge_name,
+          charge_type,
+          period_month,
+          due_date,
+          amount,
+          notes
+        `)
+        .eq(
+          'student_id',
+          selectedStudent.id
+        )
+        .eq(
+          'academic_year_id',
+          selectedYear
+        )
+        .eq(
+          'period_month',
+          nextPeriod
+        );
+
+      if (freshError) {
+        setError(
+          `Bill generated but could not be loaded for payment: ${freshError.message}`
+        );
+        setGenerating(false);
+        return;
+      }
+
+      chargesToPay =
+        (freshCharges || []).map(
+          (charge) => ({
+            ...charge,
+            paid: 0,
+            balance:
+              Number(
+                charge.amount
+              ),
+          })
+        );
+
+      setMessage(
+        `${getMonthName(
+          nextMonth
+        )} bill generated.`
+      );
+
+      setGenerating(false);
     }
 
-    setGeneratingNextBill(
-      false
-    );
+    if (
+      chargesToPay.length ===
+      0
+    ) {
+      setError(
+        'There is no outstanding amount on the next bill.'
+      );
+      return;
+    }
 
-    /*
-     * After generation the component
-     * state will refresh. The user can
-     * then enter the amount and pay.
-     */
-    setMessage(
-      `${getMonthLabel(
-        nextMonth
-      )} bill is ready. Enter the amount below to collect payment.`
+    const nextBillBalance =
+      chargesToPay.reduce(
+        (total, charge) =>
+          total + charge.balance,
+        0
+      );
+
+    const amount =
+      Number(
+        amountReceived || 0
+      );
+
+    if (
+      amount <= 0
+    ) {
+      setError(
+        `Enter an amount up to ${money(
+          nextBillBalance
+        )} for the next bill.`
+      );
+      return;
+    }
+
+    if (
+      amount >
+      nextBillBalance
+    ) {
+      setError(
+        `Payment cannot exceed ${money(
+          nextBillBalance
+        )}.`
+      );
+      return;
+    }
+
+    await recordPaymentForCharges(
+      chargesToPay,
+      amount
     );
   }
 
   /*
    * PRINT RECEIPT
    */
-  function printReceipt() {
-    if (
-      !lastReceipt
-    ) {
-      return;
-    }
 
-    const printWindow =
+  function printReceipt() {
+    if (!receipt) return;
+
+    const popup =
       window.open(
         '',
         '_blank'
       );
 
-    if (
-      !printWindow
-    ) {
+    if (!popup) {
       setError(
         'Please allow pop-ups to print the receipt.'
       );
@@ -1975,18 +1588,18 @@ export default function CollectionPage() {
     }
 
     const itemsHtml =
-      lastReceipt.items
+      receipt.items
         .map(
           (item) => `
             <tr>
-              <td style="padding:10px 0;border-bottom:1px solid #eee;">
+              <td>
                 ${escapeHtml(
                   item.name
                 )}
               </td>
-              <td style="padding:10px 0;border-bottom:1px solid #eee;text-align:right;">
-                ₹${item.amount.toLocaleString(
-                  'en-IN'
+              <td class="right">
+                ${money(
+                  item.amount
                 )}
               </td>
             </tr>
@@ -1994,69 +1607,74 @@ export default function CollectionPage() {
         )
         .join('');
 
-    printWindow.document.write(`
-      <!DOCTYPE html>
+    popup.document.write(`
+      <!doctype html>
+
       <html>
         <head>
-          <title>${escapeHtml(
-            lastReceipt.receiptNo
-          )}</title>
+
+          <title>
+            ${escapeHtml(
+              receipt.receiptNo
+            )}
+          </title>
 
           <style>
+
             * {
               box-sizing: border-box;
             }
 
             body {
-              font-family: Arial, sans-serif;
               margin: 0;
               padding: 30px;
+              font-family: Arial, sans-serif;
               color: #111827;
-              background: white;
+              background: #ffffff;
             }
 
             .receipt {
+              width: 100%;
               max-width: 720px;
-              margin: auto;
+              margin: 0 auto;
               border: 1px solid #d1d5db;
               padding: 35px;
             }
 
             .school {
               text-align: center;
-              font-size: 26px;
+              font-size: 27px;
               font-weight: 800;
-              margin-bottom: 5px;
             }
 
             .subtitle {
               text-align: center;
+              margin-top: 5px;
               color: #64748b;
-              margin-bottom: 25px;
             }
 
             .title {
               text-align: center;
               font-size: 20px;
               font-weight: 800;
-              margin-bottom: 25px;
+              margin: 25px 0;
             }
 
             .info {
               display: grid;
               grid-template-columns: 1fr 1fr;
-              gap: 10px 25px;
+              gap: 18px;
               margin-bottom: 25px;
             }
 
             .label {
-              color: #64748b;
               font-size: 12px;
+              color: #64748b;
             }
 
             .value {
+              margin-top: 4px;
               font-weight: 700;
-              margin-top: 3px;
             }
 
             table {
@@ -2064,24 +1682,35 @@ export default function CollectionPage() {
               border-collapse: collapse;
             }
 
+            td {
+              padding: 11px 0;
+              border-bottom: 1px solid #e5e7eb;
+            }
+
+            .right {
+              text-align: right;
+              font-weight: 700;
+            }
+
             .total {
-              margin-top: 20px;
-              padding-top: 15px;
-              border-top: 2px solid #111827;
               display: flex;
               justify-content: space-between;
+              border-top: 2px solid #111827;
+              margin-top: 20px;
+              padding-top: 15px;
               font-size: 20px;
               font-weight: 800;
             }
 
             .footer {
-              margin-top: 35px;
               text-align: center;
               color: #64748b;
               font-size: 12px;
+              margin-top: 35px;
             }
 
             @media print {
+
               body {
                 padding: 0;
               }
@@ -2089,11 +1718,15 @@ export default function CollectionPage() {
               .receipt {
                 border: 0;
               }
+
             }
+
           </style>
+
         </head>
 
         <body>
+
           <div class="receipt">
 
             <div class="school">
@@ -2117,7 +1750,7 @@ export default function CollectionPage() {
 
                 <div class="value">
                   ${escapeHtml(
-                    lastReceipt.receiptNo
+                    receipt.receiptNo
                   )}
                 </div>
               </div>
@@ -2129,7 +1762,7 @@ export default function CollectionPage() {
 
                 <div class="value">
                   ${new Date(
-                    lastReceipt.date
+                    receipt.date
                   ).toLocaleString(
                     'en-IN'
                   )}
@@ -2143,7 +1776,7 @@ export default function CollectionPage() {
 
                 <div class="value">
                   ${escapeHtml(
-                    lastReceipt.student.name
+                    receipt.student.name
                   )}
                 </div>
               </div>
@@ -2155,7 +1788,8 @@ export default function CollectionPage() {
 
                 <div class="value">
                   ${escapeHtml(
-                    lastReceipt.student.admission_no
+                    receipt.student
+                      .admission_no
                   )}
                 </div>
               </div>
@@ -2167,7 +1801,7 @@ export default function CollectionPage() {
 
                 <div class="value">
                   ${escapeHtml(
-                    `${lastReceipt.student.class_name}-${lastReceipt.student.section}`
+                    `${receipt.student.class_name}-${receipt.student.section}`
                   )}
                 </div>
               </div>
@@ -2179,7 +1813,7 @@ export default function CollectionPage() {
 
                 <div class="value">
                   ${escapeHtml(
-                    lastReceipt.mode.toUpperCase()
+                    receipt.mode.toUpperCase()
                   )}
                 </div>
               </div>
@@ -2187,33 +1821,39 @@ export default function CollectionPage() {
             </div>
 
             <table>
+
               <tbody>
                 ${itemsHtml}
               </tbody>
+
             </table>
 
             <div class="total">
+
               <span>
                 TOTAL RECEIVED
               </span>
 
               <span>
-                ₹${lastReceipt.amount.toLocaleString(
-                  'en-IN'
+                ${money(
+                  receipt.amount
                 )}
               </span>
+
             </div>
 
             <div style="margin-top:20px;">
+
               <div class="label">
                 Collected By
               </div>
 
               <div class="value">
                 ${escapeHtml(
-                  lastReceipt.collector
+                  receipt.collector
                 )}
               </div>
+
             </div>
 
             <div class="footer">
@@ -2227,40 +1867,12 @@ export default function CollectionPage() {
               window.print();
             };
           </script>
+
         </body>
       </html>
     `);
 
-    printWindow.document.close();
-  }
-
-  /*
-   * ESCAPE HTML FOR RECEIPT
-   */
-  function escapeHtml(
-    value: string
-  ) {
-    return value
-      .replaceAll(
-        '&',
-        '&amp;'
-      )
-      .replaceAll(
-        '<',
-        '&lt;'
-      )
-      .replaceAll(
-        '>',
-        '&gt;'
-      )
-      .replaceAll(
-        '"',
-        '&quot;'
-      )
-      .replaceAll(
-        "'",
-        '&#039;'
-      );
+    popup.document.close();
   }
 
   if (loading) {
@@ -2269,11 +1881,17 @@ export default function CollectionPage() {
         <div
           className="card"
           style={{
-            maxWidth: 900,
+            maxWidth: 1000,
             margin: '40px auto',
           }}
         >
-          Loading fee collection...
+          <h2>
+            Loading Fee Collection...
+          </h2>
+
+          <p className="muted">
+            Loading students, fee structures and outstanding balances.
+          </p>
         </div>
       </main>
     );
@@ -2289,23 +1907,24 @@ export default function CollectionPage() {
         }}
       >
 
-        {/* HEADER */}
+        {/* PAGE HEADER */}
 
         <div className="page-head">
 
           <div>
-            <p
+
+            <div
               style={{
-                margin: 0,
                 color: '#2563eb',
                 fontSize: 13,
                 fontWeight: 800,
                 letterSpacing:
-                  '0.06em',
+                  '0.07em',
+                marginBottom: 5,
               }}
             >
               CASH / UPI COLLECTION
-            </p>
+            </div>
 
             <h1>
               Fee Collection
@@ -2314,6 +1933,7 @@ export default function CollectionPage() {
             <p className="muted">
               Search student → review dues → receive payment → print receipt.
             </p>
+
           </div>
 
         </div>
@@ -2343,34 +1963,26 @@ export default function CollectionPage() {
               marginBottom: 18,
             }}
           >
-            {message}
+            ✓ {message}
           </div>
         )}
 
-        {/* STEP 1 */}
+        {/* 1 SELECT STUDENT */}
 
         <section className="card">
 
-          <div
-            style={{
-              marginBottom: 18,
-            }}
-          >
+          <h2>
+            1. Select Student
+          </h2>
 
-            <h2>
-              1. Select Student
-            </h2>
-
-            <p className="muted">
-              Search by admission number, student name, class or parent phone.
-            </p>
-
-          </div>
+          <p className="muted">
+            Search by admission number, student name, class or parent phone.
+          </p>
 
           <div
             style={{
-              position:
-                'relative',
+              position: 'relative',
+              marginTop: 16,
             }}
           >
 
@@ -2382,9 +1994,13 @@ export default function CollectionPage() {
                   event.target.value
                 );
 
-                setSelectedStudent(
-                  null
-                );
+                if (
+                  selectedStudent
+                ) {
+                  setSelectedStudent(
+                    null
+                  );
+                }
               }}
               placeholder="Search admission no., student name, class or phone..."
               autoComplete="off"
@@ -2392,7 +2008,7 @@ export default function CollectionPage() {
 
             {search.trim() &&
               !selectedStudent &&
-              filteredStudents.length >
+              searchResults.length >
                 0 && (
 
                 <div
@@ -2403,28 +2019,28 @@ export default function CollectionPage() {
                       'calc(100% + 6px)',
                     left: 0,
                     right: 0,
-                    zIndex: 30,
+                    zIndex: 50,
                     background:
                       '#fff',
                     border:
                       '1px solid #dfe5ef',
                     borderRadius:
                       12,
-                    boxShadow:
-                      '0 15px 35px rgba(16,24,40,.12)',
                     overflow:
                       'hidden',
+                    boxShadow:
+                      '0 18px 45px rgba(15,23,42,.14)',
                   }}
                 >
 
-                  {filteredStudents.map(
+                  {searchResults.map(
                     (student) => (
 
                       <button
-                        type="button"
                         key={
                           student.id
                         }
+                        type="button"
                         onClick={() =>
                           selectStudent(
                             student
@@ -2433,15 +2049,16 @@ export default function CollectionPage() {
                         style={{
                           width:
                             '100%',
-                          textAlign:
-                            'left',
                           padding:
-                            '13px 15px',
-                          border: 0,
+                            '14px 16px',
+                          border:
+                            'none',
                           borderBottom:
                             '1px solid #eef1f5',
                           background:
                             '#fff',
+                          textAlign:
+                            'left',
                           cursor:
                             'pointer',
                         }}
@@ -2455,16 +2072,18 @@ export default function CollectionPage() {
 
                         {' — '}
 
-                        {student.name}
+                        {
+                          student.name
+                        }
 
                         <div
                           style={{
-                            fontSize:
-                              12,
                             color:
                               '#667085',
+                            fontSize:
+                              12,
                             marginTop:
-                              3,
+                              4,
                           }}
                         >
                           {
@@ -2474,8 +2093,9 @@ export default function CollectionPage() {
                           {
                             student.section
                           }
-                          {' · '}
-                          Parent:{' '}
+
+                          {' · Parent: '}
+
                           {
                             student.parent_phone ||
                             '—'
@@ -2491,14 +2111,30 @@ export default function CollectionPage() {
 
               )}
 
+            {search.trim() &&
+              !selectedStudent &&
+              searchResults.length ===
+                0 && (
+
+                <div
+                  className="muted"
+                  style={{
+                    marginTop: 10,
+                  }}
+                >
+                  No students found.
+                </div>
+
+              )}
+
           </div>
 
         </section>
 
-        {/* SELECTED STUDENT */}
-
         {selectedStudent && (
           <>
+
+            {/* STUDENT CARD */}
 
             <section
               className="card"
@@ -2509,13 +2145,12 @@ export default function CollectionPage() {
 
               <div
                 style={{
-                  display:
-                    'flex',
+                  display: 'flex',
                   justifyContent:
                     'space-between',
+                  gap: 20,
                   alignItems:
                     'center',
-                  gap: 20,
                   flexWrap:
                     'wrap',
                 }}
@@ -2540,8 +2175,7 @@ export default function CollectionPage() {
 
                   <h2
                     style={{
-                      marginTop:
-                        5,
+                      marginTop: 6,
                     }}
                   >
                     {
@@ -2549,7 +2183,12 @@ export default function CollectionPage() {
                     }
                   </h2>
 
-                  <p className="muted">
+                  <p
+                    className="muted"
+                    style={{
+                      marginTop: 5,
+                    }}
+                  >
                     {
                       selectedStudent.admission_no
                     }
@@ -2566,8 +2205,7 @@ export default function CollectionPage() {
                   <p
                     className="muted"
                     style={{
-                      marginTop:
-                        4,
+                      marginTop: 5,
                     }}
                   >
                     Parent:{' '}
@@ -2588,7 +2226,7 @@ export default function CollectionPage() {
                   style={{
                     display:
                       'flex',
-                    gap: 10,
+                    gap: 8,
                     flexWrap:
                       'wrap',
                   }}
@@ -2616,7 +2254,7 @@ export default function CollectionPage() {
 
             </section>
 
-            {/* STEP 2 */}
+            {/* 2 SESSION */}
 
             <section
               className="card"
@@ -2630,7 +2268,7 @@ export default function CollectionPage() {
               </h2>
 
               <p className="muted">
-                Choose the academic session and month to review dues.
+                Choose the academic session and month to review the bill.
               </p>
 
               <div
@@ -2650,13 +2288,19 @@ export default function CollectionPage() {
                     }
                     onChange={(
                       event
-                    ) =>
+                    ) => {
                       setSelectedYear(
                         event.target
                           .value
-                      )
-                    }
+                      );
+                      setAmountReceived(
+                        ''
+                      );
+                      setError('');
+                      setMessage('');
+                    }}
                   >
+
                     {years.map(
                       (year) => (
                         <option
@@ -2676,6 +2320,7 @@ export default function CollectionPage() {
                         </option>
                       )
                     )}
+
                   </select>
 
                 </label>
@@ -2690,13 +2335,19 @@ export default function CollectionPage() {
                     }
                     onChange={(
                       event
-                    ) =>
+                    ) => {
                       setSelectedMonth(
                         event.target
                           .value
-                      )
-                    }
+                      );
+                      setAmountReceived(
+                        ''
+                      );
+                      setError('');
+                      setMessage('');
+                    }}
                   >
+
                     {MONTHS.map(
                       (month) => (
                         <option
@@ -2708,31 +2359,18 @@ export default function CollectionPage() {
                           }
                         >
                           {
-                            month.label
+                            month.name
                           }{' '}
-                          {
-                            selectedYearData?.start_date &&
-                            Number(
-                              month.value
-                            ) >= 4
-                              ? selectedYearData.start_date.slice(
-                                  0,
-                                  4
-                                )
-                              : selectedYearData?.start_date
-                              ? String(
-                                  Number(
-                                    selectedYearData.start_date.slice(
-                                      0,
-                                      4
-                                    )
-                                  ) + 1
-                                )
-                              : ''
-                          }
+                          {selectedYearData
+                            ? getMonthYear(
+                                selectedYearData,
+                                month.value
+                              )
+                            : ''}
                         </option>
                       )
                     )}
+
                   </select>
 
                 </label>
@@ -2741,7 +2379,7 @@ export default function CollectionPage() {
 
             </section>
 
-            {/* CURRENT MONTH STATUS */}
+            {/* CURRENT MONTH */}
 
             <section
               className="card"
@@ -2756,9 +2394,9 @@ export default function CollectionPage() {
                     'flex',
                   justifyContent:
                     'space-between',
+                  gap: 20,
                   alignItems:
                     'center',
-                  gap: 20,
                   flexWrap:
                     'wrap',
                 }}
@@ -2766,29 +2404,67 @@ export default function CollectionPage() {
 
                 <div>
 
-                  <h2>
-                    3.{' '}
-                    {getMonthLabel(
-                      selectedMonth
-                    )}{' '}
-                    Bill
+                  <div
+                    style={{
+                      color:
+                        '#2563eb',
+                      fontSize:
+                        12,
+                      fontWeight:
+                        800,
+                    }}
+                  >
+                    CURRENT BILL
+                  </div>
+
+                  <h2
+                    style={{
+                      marginTop: 5,
+                    }}
+                  >
+                    {
+                      getMonthName(
+                        selectedMonth
+                      )
+                    }{' '}
+                    {selectedYearData
+                      ? getMonthYear(
+                          selectedYearData,
+                          selectedMonth
+                        )
+                      : ''}
                   </h2>
 
                   <p className="muted">
-                    Current selected-month billing status.
+                    Monthly school, hostel and vehicle charges.
                   </p>
 
                 </div>
 
                 <div
                   style={{
-                    textAlign:
-                      'right',
+                    background:
+                      '#111827',
+                    color:
+                      '#fff',
+                    padding:
+                      '16px 22px',
+                    borderRadius:
+                      16,
+                    minWidth:
+                      210,
                   }}
                 >
 
-                  <div className="metric-label">
-                    CURRENT MONTH OUTSTANDING
+                  <div
+                    style={{
+                      fontSize:
+                        12,
+                      opacity:
+                        0.75,
+                    }}
+                  >
+                    OUTSTANDING
                   </div>
 
                   <div
@@ -2797,16 +2473,12 @@ export default function CollectionPage() {
                         30,
                       fontWeight:
                         800,
-                      color:
-                        selectedMonthOutstanding >
-                        0
-                          ? '#b42318'
-                          : '#067647',
+                      marginTop:
+                        5,
                     }}
                   >
-                    ₹
-                    {selectedMonthOutstanding.toLocaleString(
-                      'en-IN'
+                    {money(
+                      currentMonthOutstanding
                     )}
                   </div>
 
@@ -2814,14 +2486,13 @@ export default function CollectionPage() {
 
               </div>
 
-              {selectedMonthCharges.length >
+              {currentMonthCharges.length >
                 0 ? (
 
                 <div
                   className="table-wrap"
                   style={{
-                    marginTop:
-                      18,
+                    marginTop: 18,
                   }}
                 >
 
@@ -2846,7 +2517,7 @@ export default function CollectionPage() {
 
                     <tbody>
 
-                      {selectedMonthCharges.map(
+                      {currentMonthCharges.map(
                         (charge) => (
                           <tr
                             key={
@@ -2857,34 +2528,22 @@ export default function CollectionPage() {
                             <td>
                               <strong>
                                 {
-                                  charge.charge_name ||
-                                  feeHeadName(
-                                    heads.find(
-                                      (
-                                        head
-                                      ) =>
-                                        head.id ===
-                                        charge.fee_head_id
-                                    ) ||
-                                      null
-                                  )
+                                  charge.charge_name
                                 }
                               </strong>
                             </td>
 
                             <td>
-                              ₹
-                              {Number(
-                                charge.amount
-                              ).toLocaleString(
-                                'en-IN'
+                              {money(
+                                Number(
+                                  charge.amount
+                                )
                               )}
                             </td>
 
                             <td>
-                              ₹
-                              {charge.paid.toLocaleString(
-                                'en-IN'
+                              {money(
+                                charge.paid
                               )}
                             </td>
 
@@ -2894,9 +2553,8 @@ export default function CollectionPage() {
                               0 ? (
 
                                 <span className="badge red">
-                                  ₹
-                                  {charge.balance.toLocaleString(
-                                    'en-IN'
+                                  {money(
+                                    charge.balance
                                   )}
                                 </span>
 
@@ -2925,8 +2583,7 @@ export default function CollectionPage() {
                 <div
                   className="empty"
                   style={{
-                    marginTop:
-                      18,
+                    marginTop: 18,
                     border:
                       '1px solid #e7ebf2',
                     borderRadius:
@@ -2938,35 +2595,34 @@ export default function CollectionPage() {
 
               )}
 
-              {selectedMonthCharges.length >
+              {currentMonthCharges.length >
                 0 &&
-                selectedMonthOutstanding ===
+                currentMonthOutstanding ===
                   0 && (
 
                   <div
                     className="success"
                     style={{
-                      marginTop:
-                        16,
+                      marginTop: 16,
                     }}
                   >
                     ✓{' '}
                     <strong>
                       {
-                        getMonthLabel(
+                        getMonthName(
                           selectedMonth
                         )
                       }{' '}
                       bill is fully paid.
                     </strong>{' '}
-                    You can proceed to the next bill below.
+                    The next bill is shown below.
                   </div>
 
                 )}
 
             </section>
 
-            {/* OUTSTANDING */}
+            {/* ALL OUTSTANDING */}
 
             <section
               className="card"
@@ -2981,9 +2637,9 @@ export default function CollectionPage() {
                     'flex',
                   justifyContent:
                     'space-between',
+                  gap: 20,
                   alignItems:
                     'center',
-                  gap: 20,
                   flexWrap:
                     'wrap',
                 }}
@@ -2992,11 +2648,11 @@ export default function CollectionPage() {
                 <div>
 
                   <h2>
-                    4. Outstanding Fees
+                    4. Outstanding Dues
                   </h2>
 
                   <p className="muted">
-                    Oldest outstanding charges are allocated first.
+                    Oldest outstanding charges are paid first.
                   </p>
 
                 </div>
@@ -3007,12 +2663,12 @@ export default function CollectionPage() {
                       '#111827',
                     color:
                       '#fff',
+                    padding:
+                      '16px 22px',
                     borderRadius:
                       16,
-                    padding:
-                      '18px 22px',
                     minWidth:
-                      230,
+                      210,
                   }}
                 >
 
@@ -3037,9 +2693,8 @@ export default function CollectionPage() {
                         5,
                     }}
                   >
-                    ₹
-                    {totalOutstanding.toLocaleString(
-                      'en-IN'
+                    {money(
+                      totalOutstanding
                     )}
                   </div>
 
@@ -3053,8 +2708,7 @@ export default function CollectionPage() {
                 <div
                   className="table-wrap"
                   style={{
-                    marginTop:
-                      18,
+                    marginTop: 18,
                   }}
                 >
 
@@ -3063,7 +2717,7 @@ export default function CollectionPage() {
                     <thead>
                       <tr>
                         <th>
-                          Due
+                          Month
                         </th>
                         <th>
                           Fee
@@ -3075,7 +2729,7 @@ export default function CollectionPage() {
                           Paid
                         </th>
                         <th>
-                          Balance
+                          Due
                         </th>
                       </tr>
                     </thead>
@@ -3107,44 +2761,29 @@ export default function CollectionPage() {
                             </td>
 
                             <td>
-                              <strong>
-                                {
-                                  charge.charge_name ||
-                                  feeHeadName(
-                                    heads.find(
-                                      (
-                                        head
-                                      ) =>
-                                        head.id ===
-                                        charge.fee_head_id
-                                    ) ||
-                                      null
-                                  )
-                                }
-                              </strong>
+                              {
+                                charge.charge_name
+                              }
                             </td>
 
                             <td>
-                              ₹
-                              {Number(
-                                charge.amount
-                              ).toLocaleString(
-                                'en-IN'
+                              {money(
+                                Number(
+                                  charge.amount
+                                )
                               )}
                             </td>
 
                             <td>
-                              ₹
-                              {charge.paid.toLocaleString(
-                                'en-IN'
+                              {money(
+                                charge.paid
                               )}
                             </td>
 
                             <td>
                               <span className="badge red">
-                                ₹
-                                {charge.balance.toLocaleString(
-                                  'en-IN'
+                                {money(
+                                  charge.balance
                                 )}
                               </span>
                             </td>
@@ -3164,8 +2803,7 @@ export default function CollectionPage() {
                 <div
                   className="success"
                   style={{
-                    marginTop:
-                      18,
+                    marginTop: 18,
                   }}
                 >
                   ✓ No outstanding dues for this academic session.
@@ -3175,7 +2813,7 @@ export default function CollectionPage() {
 
             </section>
 
-            {/* PAYMENT */}
+            {/* PAYMENT SECTION */}
 
             {totalOutstanding >
               0 && (
@@ -3183,8 +2821,7 @@ export default function CollectionPage() {
               <section
                 className="card"
                 style={{
-                  marginTop:
-                    18,
+                  marginTop: 18,
                 }}
               >
 
@@ -3193,14 +2830,13 @@ export default function CollectionPage() {
                 </h2>
 
                 <p className="muted">
-                  Payment is automatically applied to the oldest dues first.
+                  Payment is automatically allocated to the oldest dues first.
                 </p>
 
                 <div
                   className="grid2"
                   style={{
-                    marginTop:
-                      18,
+                    marginTop: 18,
                   }}
                 >
 
@@ -3225,7 +2861,9 @@ export default function CollectionPage() {
                             .value
                         )
                       }
-                      placeholder="Enter amount"
+                      placeholder={`Maximum ${money(
+                        totalOutstanding
+                      )}`}
                     />
 
                   </label>
@@ -3249,6 +2887,7 @@ export default function CollectionPage() {
                         )
                       }
                     >
+
                       <option value="cash">
                         Cash
                       </option>
@@ -3256,6 +2895,7 @@ export default function CollectionPage() {
                       <option value="upi">
                         UPI
                       </option>
+
                     </select>
 
                   </label>
@@ -3272,8 +2912,7 @@ export default function CollectionPage() {
                         event
                       ) => {
                         const id =
-                          event
-                            .target
+                          event.target
                             .value;
 
                         setCollectionAccountId(
@@ -3289,23 +2928,20 @@ export default function CollectionPage() {
                               id
                           );
 
-                        if (
-                          account
-                        ) {
+                        if (account) {
                           setCollectorName(
                             account.name
                           );
                         }
                       }}
                     >
+
                       <option value="">
                         Select account
                       </option>
 
                       {accounts.map(
-                        (
-                          account
-                        ) => (
+                        (account) => (
                           <option
                             key={
                               account.id
@@ -3320,6 +2956,7 @@ export default function CollectionPage() {
                           </option>
                         )
                       )}
+
                     </select>
 
                   </label>
@@ -3340,7 +2977,7 @@ export default function CollectionPage() {
                             .value
                         )
                       }
-                      placeholder="Principal / Vice Principal / Director / custom"
+                      placeholder="Principal / Vice Principal / Director"
                     />
 
                   </label>
@@ -3350,8 +2987,7 @@ export default function CollectionPage() {
                 <label
                   className="label"
                   style={{
-                    marginTop:
-                      16,
+                    marginTop: 16,
                   }}
                 >
                   Notes
@@ -3374,27 +3010,23 @@ export default function CollectionPage() {
 
                 </label>
 
-                {/* ALLOCATION PREVIEW */}
-
                 {enteredAmount >
                   0 && (
 
                   <div
                     style={{
-                      marginTop:
-                        18,
+                      marginTop: 18,
                     }}
                   >
 
                     <h3>
-                      Allocation Preview
+                      Payment Allocation Preview
                     </h3>
 
                     <div
                       className="table-wrap"
                       style={{
-                        marginTop:
-                          10,
+                        marginTop: 10,
                       }}
                     >
 
@@ -3416,18 +3048,14 @@ export default function CollectionPage() {
 
                         <tbody>
 
-                          {allocationPreview
+                          {currentAllocationPreview
                             .filter(
-                              (
-                                item
-                              ) =>
+                              (item) =>
                                 item.allocation >
                                 0
                             )
                             .map(
-                              (
-                                item
-                              ) => (
+                              (item) => (
                                 <tr
                                   key={
                                     item.id
@@ -3441,17 +3069,15 @@ export default function CollectionPage() {
                                   </td>
 
                                   <td>
-                                    ₹
-                                    {item.balance.toLocaleString(
-                                      'en-IN'
+                                    {money(
+                                      item.balance
                                     )}
                                   </td>
 
                                   <td>
                                     <strong>
-                                      ₹
-                                      {item.allocation.toLocaleString(
-                                        'en-IN'
+                                      {money(
+                                        item.allocation
                                       )}
                                     </strong>
                                   </td>
@@ -3466,25 +3092,19 @@ export default function CollectionPage() {
 
                     </div>
 
-                    <div
-                      className="card"
+                    <p
+                      className="muted"
                       style={{
-                        marginTop:
-                          12,
-                        background:
-                          '#eff6ff',
-                        borderColor:
-                          '#bfdbfe',
+                        marginTop: 10,
                       }}
                     >
-                      Payment allocation:{' '}
+                      Allocated:{' '}
                       <strong>
-                        ₹
-                        {allocationTotal.toLocaleString(
-                          'en-IN'
+                        {money(
+                          currentAllocationTotal
                         )}
                       </strong>
-                    </div>
+                    </p>
 
                   </div>
 
@@ -3493,26 +3113,25 @@ export default function CollectionPage() {
                 <button
                   type="button"
                   className="btn"
+                  style={{
+                    marginTop: 18,
+                  }}
                   disabled={
-                    collecting ||
+                    saving ||
                     enteredAmount <=
                       0 ||
                     enteredAmount >
                       totalOutstanding
                   }
                   onClick={
-                    recordPayment
+                    receiveCurrentPayment
                   }
-                  style={{
-                    marginTop:
-                      18,
-                    padding:
-                      '13px 22px',
-                  }}
                 >
-                  {collecting
+                  {saving
                     ? 'Recording Payment...'
-                    : `Receive ₹${enteredAmount > 0 ? enteredAmount.toLocaleString('en-IN') : '0'}`}
+                    : `Receive ${money(
+                        enteredAmount
+                      )}`}
                 </button>
 
               </section>
@@ -3521,131 +3140,124 @@ export default function CollectionPage() {
 
             {/* NEXT BILL */}
 
-            {totalOutstanding ===
-              0 && (
+            <section
+              className="card"
+              style={{
+                marginTop: 18,
+                border:
+                  '1px solid #bfdbfe',
+              }}
+            >
 
-              <section
-                className="card"
+              <div
                 style={{
-                  marginTop:
-                    18,
-                  border:
-                    '1px solid #bfdbfe',
+                  display:
+                    'flex',
+                  justifyContent:
+                    'space-between',
+                  gap: 20,
+                  alignItems:
+                    'center',
+                  flexWrap:
+                    'wrap',
                 }}
               >
 
+                <div>
+
+                  <div
+                    style={{
+                      color:
+                        '#2563eb',
+                      fontSize:
+                        12,
+                      fontWeight:
+                        800,
+                      letterSpacing:
+                        '0.06em',
+                    }}
+                  >
+                    NEXT BILL
+                  </div>
+
+                  <h2
+                    style={{
+                      marginTop: 5,
+                    }}
+                  >
+                    {
+                      getMonthName(
+                        nextMonth
+                      )
+                    }{' '}
+                    {selectedYearData
+                      ? getMonthYear(
+                          selectedYearData,
+                          nextMonth
+                        )
+                      : ''}
+                  </h2>
+
+                  <p className="muted">
+                    {nextBillExists
+                      ? 'The next bill has already been generated.'
+                      : 'The next bill will use the configured class, hostel and vehicle fees.'}
+                  </p>
+
+                </div>
+
                 <div
                   style={{
-                    display:
-                      'flex',
-                    justifyContent:
-                      'space-between',
-                    alignItems:
-                      'center',
-                    gap: 20,
-                    flexWrap:
-                      'wrap',
+                    background:
+                      '#eff6ff',
+                    border:
+                      '1px solid #bfdbfe',
+                    borderRadius:
+                      16,
+                    padding:
+                      '16px 22px',
+                    minWidth:
+                      210,
                   }}
                 >
 
-                  <div>
-
-                    <p
-                      style={{
-                        margin: 0,
-                        color:
-                          '#2563eb',
-                        fontSize:
-                          12,
-                        fontWeight:
-                          800,
-                        letterSpacing:
-                          '0.06em',
-                      }}
-                    >
-                      NEXT BILL
-                    </p>
-
-                    <h2
-                      style={{
-                        marginTop:
-                          5,
-                      }}
-                    >
-                      {getMonthLabel(
-                        nextMonth
-                      )}{' '}
-                      {selectedYearData?.start_date &&
-                      Number(
-                        nextMonth
-                      ) >= 4
-                        ? selectedYearData.start_date.slice(
-                            0,
-                            4
-                          )
-                        : selectedYearData?.start_date
-                        ? String(
-                            Number(
-                              selectedYearData.start_date.slice(
-                                0,
-                                4
-                              )
-                            ) + 1
-                          )
-                        : ''}
-                    </h2>
-
-                    <p className="muted">
-                      {nextBillAlreadyExists
-                        ? 'The next bill has already been generated.'
-                        : 'The next bill will be calculated from the student fee structure.'}
-                    </p>
-
+                  <div className="metric-label">
+                    NEXT BILL TOTAL
                   </div>
 
                   <div
                     style={{
-                      textAlign:
-                        'right',
+                      fontSize:
+                        30,
+                      fontWeight:
+                        800,
+                      color:
+                        '#173b8f',
+                      marginTop:
+                        4,
                     }}
                   >
-
-                    <div className="metric-label">
-                      NEXT BILL TOTAL
-                    </div>
-
-                    <div
-                      style={{
-                        fontSize:
-                          30,
-                        fontWeight:
-                          800,
-                        color:
-                          '#173b8f',
-                      }}
-                    >
-                      ₹
-                      {(
-                        nextBillAlreadyExists
-                          ? nextMonthExistingTotal
-                          : calculatedNextBillTotal
-                      ).toLocaleString(
-                        'en-IN'
-                      )}
-                    </div>
-
+                    {money(
+                      nextBillExists
+                        ? nextMonthTotal
+                        : calculatedNextBill
+                    )}
                   </div>
 
                 </div>
 
-                {nextBillItems.length >
+              </div>
+
+              {/* BILL COMPONENTS */}
+
+              {!nextBillExists &&
+                nextBillItems.length >
                   0 && (
 
                   <div
                     className="table-wrap"
                     style={{
-                      marginTop:
-                        18,
+                      marginTop: 18,
                     }}
                   >
 
@@ -3665,9 +3277,7 @@ export default function CollectionPage() {
                       <tbody>
 
                         {nextBillItems.map(
-                          (
-                            item
-                          ) => (
+                          (item) => (
                             <tr
                               key={
                                 item.name
@@ -3682,9 +3292,8 @@ export default function CollectionPage() {
 
                               <td>
                                 <strong>
-                                  ₹
-                                  {item.amount.toLocaleString(
-                                    'en-IN'
+                                  {money(
+                                    item.amount
                                   )}
                                 </strong>
                               </td>
@@ -3701,214 +3310,315 @@ export default function CollectionPage() {
 
                 )}
 
-                {nextBillAlreadyExists &&
-                  nextBillOutstanding ===
-                    0 && (
+              {/* EXISTING NEXT BILL */}
 
-                    <div
-                      className="success"
-                      style={{
-                        marginTop:
-                          16,
-                      }}
-                    >
-                      ✓{' '}
-                      {getMonthLabel(
-                        nextMonth
-                      )}{' '}
-                      bill is already fully paid.
-                    </div>
+              {nextBillExists &&
+                nextMonthCharges.length >
+                  0 && (
 
-                  )}
+                  <div
+                    className="table-wrap"
+                    style={{
+                      marginTop: 18,
+                    }}
+                  >
 
-                {nextBillAlreadyExists &&
-                  nextBillOutstanding >
-                    0 && (
+                    <table className="table">
 
-                    <div
-                      className="card"
-                      style={{
-                        marginTop:
-                          16,
-                        background:
-                          '#fffbeb',
-                        borderColor:
-                          '#fcd34d',
-                      }}
-                    >
-                      <strong>
-                        ₹
-                        {nextBillOutstanding.toLocaleString(
-                          'en-IN'
+                      <thead>
+                        <tr>
+                          <th>
+                            Fee
+                          </th>
+                          <th>
+                            Bill
+                          </th>
+                          <th>
+                            Paid
+                          </th>
+                          <th>
+                            Balance
+                          </th>
+                        </tr>
+                      </thead>
+
+                      <tbody>
+
+                        {nextMonthCharges.map(
+                          (charge) => (
+                            <tr
+                              key={
+                                charge.id
+                              }
+                            >
+
+                              <td>
+                                {
+                                  charge.charge_name
+                                }
+                              </td>
+
+                              <td>
+                                {money(
+                                  Number(
+                                    charge.amount
+                                  )
+                                )}
+                              </td>
+
+                              <td>
+                                {money(
+                                  charge.paid
+                                )}
+                              </td>
+
+                              <td>
+
+                                {charge.balance >
+                                0 ? (
+
+                                  <span className="badge red">
+                                    {money(
+                                      charge.balance
+                                    )}
+                                  </span>
+
+                                ) : (
+
+                                  <span className="badge green">
+                                    ✓ PAID
+                                  </span>
+
+                                )}
+
+                              </td>
+
+                            </tr>
+                          )
                         )}
-                      </strong>{' '}
-                      remains outstanding on the next bill.
-                    </div>
 
-                  )}
+                      </tbody>
 
-                {!nextBillAlreadyExists && (
+                    </table>
+
+                  </div>
+
+                )}
+
+              {/* NO NEXT BILL YET */}
+
+              {!nextBillExists && (
+                <div
+                  style={{
+                    marginTop: 18,
+                  }}
+                >
+
                   <button
                     type="button"
                     className="btn"
+                    disabled={
+                      generating ||
+                      calculatedNextBill <=
+                        0
+                    }
                     onClick={
                       generateNextBill
                     }
-                    disabled={
-                      generatingNextBill
-                    }
-                    style={{
-                      marginTop:
-                        18,
-                    }}
                   >
-                    {generatingNextBill
+                    {generating
                       ? 'Generating...'
-                      : `Generate ${getMonthLabel(
+                      : `Generate ${getMonthName(
                           nextMonth
                         )} Bill`}
                   </button>
+
+                </div>
+              )}
+
+              {/* NEXT BILL PAID */}
+
+              {nextBillExists &&
+                nextMonthOutstanding ===
+                  0 && (
+
+                  <div
+                    className="success"
+                    style={{
+                      marginTop: 18,
+                    }}
+                  >
+                    ✓{' '}
+                    <strong>
+                      {
+                        getMonthName(
+                          nextMonth
+                        )
+                      }{' '}
+                      bill is already fully paid.
+                    </strong>
+                  </div>
+
                 )}
 
-                {nextBillAlreadyExists &&
-                  nextBillOutstanding >
-                    0 && (
+              {/* PAY NEXT BILL */}
+
+              {nextBillExists &&
+                nextMonthOutstanding >
+                  0 && (
+
+                  <div
+                    style={{
+                      marginTop: 18,
+                      padding: 20,
+                      background:
+                        '#f8fbff',
+                      border:
+                        '1px solid #dbeafe',
+                      borderRadius:
+                        14,
+                    }}
+                  >
+
+                    <h3>
+                      Pay Next Bill
+                    </h3>
+
+                    <p className="muted">
+                      Enter the amount you want to collect for this bill.
+                    </p>
 
                     <div
+                      className="grid2"
                       style={{
-                        marginTop:
-                          18,
-                        padding:
-                          18,
-                        border:
-                          '1px solid #e7ebf2',
-                        borderRadius:
-                          14,
+                        marginTop: 14,
                       }}
                     >
 
-                      <h3>
-                        Pay Next Bill
-                      </h3>
+                      <label className="label">
+                        Amount
 
-                      <p className="muted">
-                        Enter the amount to collect against the generated next bill.
-                      </p>
-
-                      <div
-                        className="grid2"
-                        style={{
-                          marginTop:
-                            14,
-                        }}
-                      >
-
-                        <label className="label">
-                          Amount
-
-                          <input
-                            className="input"
-                            type="number"
-                            min="1"
-                            max={
-                              nextBillOutstanding
-                            }
-                            value={
-                              amountReceived
-                            }
-                            onChange={(
-                              event
-                            ) =>
-                              setAmountReceived(
-                                event
-                                  .target
-                                  .value
-                              )
-                            }
-                            placeholder="Enter amount"
-                          />
-
-                        </label>
-
-                        <label className="label">
-                          Payment Mode
-
-                          <select
-                            className="select"
-                            value={
-                              paymentMode
-                            }
-                            onChange={(
-                              event
-                            ) =>
-                              setPaymentMode(
-                                event
-                                  .target
-                                  .value as
-                                  | 'cash'
-                                  | 'upi'
-                              )
-                            }
-                          >
-                            <option value="cash">
-                              Cash
-                            </option>
-
-                            <option value="upi">
-                              UPI
-                            </option>
-                          </select>
-
-                        </label>
-
-                      </div>
-
-                      <button
-                        type="button"
-                        className="btn"
-                        style={{
-                          marginTop:
-                            14,
-                        }}
-                        disabled={
-                          collecting ||
-                          Number(
+                        <input
+                          className="input"
+                          type="number"
+                          min="1"
+                          max={
+                            nextMonthOutstanding
+                          }
+                          value={
                             amountReceived
-                          ) <=
-                            0 ||
-                          Number(
-                            amountReceived
-                          ) >
-                            nextBillOutstanding
-                        }
-                        onClick={
-                          recordPayment
-                        }
-                      >
-                        {collecting
-                          ? 'Processing...'
-                          : `Pay Next Bill ₹${Number(amountReceived || 0).toLocaleString('en-IN')}`}
-                      </button>
+                          }
+                          onChange={(
+                            event
+                          ) =>
+                            setAmountReceived(
+                              event.target
+                                .value
+                            )
+                          }
+                          placeholder={`Maximum ${money(
+                            nextMonthOutstanding
+                          )}`}
+                        />
+
+                      </label>
+
+                      <label className="label">
+                        Payment Mode
+
+                        <select
+                          className="select"
+                          value={
+                            paymentMode
+                          }
+                          onChange={(
+                            event
+                          ) =>
+                            setPaymentMode(
+                              event.target
+                                .value as
+                                | 'cash'
+                                | 'upi'
+                            )
+                          }
+                        >
+
+                          <option value="cash">
+                            Cash
+                          </option>
+
+                          <option value="upi">
+                            UPI
+                          </option>
+
+                        </select>
+
+                      </label>
 
                     </div>
 
-                  )}
+                    <button
+                      type="button"
+                      className="btn"
+                      style={{
+                        marginTop: 16,
+                      }}
+                      disabled={
+                        saving ||
+                        Number(
+                          amountReceived
+                        ) <= 0 ||
+                        Number(
+                          amountReceived
+                        ) >
+                          nextMonthOutstanding
+                      }
+                      onClick={
+                        payNextBill
+                      }
+                    >
+                      {saving
+                        ? 'Processing...'
+                        : `Pay Next Bill ${money(
+                            Number(
+                              amountReceived ||
+                                0
+                            )
+                          )}`}
+                    </button>
 
-              </section>
+                  </div>
 
-            )}
+                )}
+
+              {/* BILL NOT CONFIGURED */}
+
+              {!nextBillExists &&
+                calculatedNextBill <=
+                  0 && (
+
+                  <div
+                    className="error"
+                    style={{
+                      marginTop: 18,
+                    }}
+                  >
+                    Next bill cannot be calculated because the required monthly fee structure is not configured.
+                  </div>
+
+                )}
+
+            </section>
 
             {/* RECEIPT */}
 
-            {lastReceipt && (
+            {receipt && (
 
               <section
                 className="card"
                 style={{
-                  marginTop:
-                    18,
-                  marginBottom:
-                    30,
+                  marginTop: 18,
+                  marginBottom: 30,
                 }}
               >
 
@@ -3928,9 +3638,8 @@ export default function CollectionPage() {
 
                   <div>
 
-                    <p
+                    <div
                       style={{
-                        margin: 0,
                         color:
                           '#067647',
                         fontSize:
@@ -3940,23 +3649,27 @@ export default function CollectionPage() {
                       }}
                     >
                       PAYMENT SUCCESSFUL
-                    </p>
+                    </div>
 
-                    <h2>
+                    <h2
+                      style={{
+                        marginTop: 5,
+                      }}
+                    >
                       Receipt{' '}
                       {
-                        lastReceipt.receiptNo
+                        receipt.receiptNo
                       }
                     </h2>
 
                     <p className="muted">
-                      ₹
-                      {lastReceipt.amount.toLocaleString(
-                        'en-IN'
+                      {money(
+                        receipt.amount
                       )}{' '}
                       received from{' '}
                       {
-                        lastReceipt.student.name
+                        receipt.student
+                          .name
                       }
                     </p>
 
