@@ -34,7 +34,7 @@ type FeeStructure = {
   effective_to: string | null;
   active: boolean;
   notes: string | null;
-  fee_heads?: FeeHead | null;
+  fee_heads?: FeeHead[] | null;
 };
 
 const CLASSES = [
@@ -90,43 +90,44 @@ export default function FeeStructurePage() {
     setLoading(true);
     setError('');
 
-    const [yearsResult, headsResult, structuresResult] = await Promise.all([
-      sb
-        .from('academic_years')
-        .select('*')
-        .order('start_date', { ascending: false }),
+    const [yearsResult, headsResult, structuresResult] =
+      await Promise.all([
+        sb
+          .from('academic_years')
+          .select('*')
+          .order('start_date', { ascending: false }),
 
-      sb
-        .from('fee_heads')
-        .select('*')
-        .order('name'),
+        sb
+          .from('fee_heads')
+          .select('*')
+          .order('name'),
 
-      sb
-        .from('fee_structures')
-        .select(`
-          id,
-          academic_year_id,
-          class_name,
-          fee_head_id,
-          amount,
-          frequency,
-          hostel_only,
-          vehicle_area,
-          applicable_to,
-          pricing_type,
-          effective_from,
-          effective_to,
-          active,
-          notes,
-          fee_heads (
+        sb
+          .from('fee_structures')
+          .select(`
             id,
-            name,
-            category,
-            is_recurring
-          )
-        `)
-        .order('created_at', { ascending: true }),
-    ]);
+            academic_year_id,
+            class_name,
+            fee_head_id,
+            amount,
+            frequency,
+            hostel_only,
+            vehicle_area,
+            applicable_to,
+            pricing_type,
+            effective_from,
+            effective_to,
+            active,
+            notes,
+            fee_heads (
+              id,
+              name,
+              category,
+              is_recurring
+            )
+          `)
+          .order('created_at', { ascending: true }),
+      ]);
 
     if (yearsResult.error) {
       setError(yearsResult.error.message);
@@ -148,7 +149,9 @@ export default function FeeStructurePage() {
 
     setYears(yearsResult.data || []);
     setHeads(headsResult.data || []);
-    setStructures((structuresResult.data || []) as FeeStructure[]);
+
+    // Supabase returns the joined fee_heads relation as an array.
+    setStructures((structuresResult.data || []) as unknown as FeeStructure[]);
 
     const activeYear =
       (yearsResult.data || []).find((y) => y.is_active) ||
@@ -163,6 +166,7 @@ export default function FeeStructurePage() {
 
   useEffect(() => {
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const yearStructures = structures.filter(
@@ -171,25 +175,25 @@ export default function FeeStructurePage() {
 
   const schoolFees = yearStructures.filter(
     (s) =>
-      s.fee_heads?.name === 'Composite Fee' &&
+      s.fee_heads?.[0]?.name === 'Composite Fee' &&
       !s.vehicle_area &&
       !s.hostel_only
   );
 
   const hostelFees = yearStructures.filter(
-    (s) => s.fee_heads?.name === 'Hostel Fee'
+    (s) => s.fee_heads?.[0]?.name === 'Hostel Fee'
   );
 
   const vehicleFees = yearStructures.filter(
-    (s) => s.fee_heads?.name === 'Vehicle Fee'
+    (s) => s.fee_heads?.[0]?.name === 'Vehicle Fee'
   );
 
   const oneTimeFees = yearStructures.filter(
     (s) =>
       s.frequency === 'One-time' &&
-      s.fee_heads?.name !== 'Composite Fee' &&
-      s.fee_heads?.name !== 'Vehicle Fee' &&
-      s.fee_heads?.name !== 'Hostel Fee'
+      s.fee_heads?.[0]?.name !== 'Composite Fee' &&
+      s.fee_heads?.[0]?.name !== 'Vehicle Fee' &&
+      s.fee_heads?.[0]?.name !== 'Hostel Fee'
   );
 
   function findSchoolFee(className: string) {
@@ -197,7 +201,9 @@ export default function FeeStructurePage() {
   }
 
   function findVehicleFee(area: string) {
-    return vehicleFees.find((s) => s.vehicle_area?.includes(area));
+    return vehicleFees.find((s) =>
+      s.vehicle_area?.toLowerCase().includes(area.toLowerCase())
+    );
   }
 
   function findHostelFee() {
@@ -289,7 +295,9 @@ export default function FeeStructurePage() {
           effective_from: newYearStart,
           effective_to: null,
           active: true,
-          notes: `Copied from ${selectedYearData?.name || 'previous session'}`,
+          notes: `Copied from ${
+            selectedYearData?.name || 'previous session'
+          }`,
         }));
 
         const { error: copyError } = await sb
@@ -307,11 +315,16 @@ export default function FeeStructurePage() {
       }
     }
 
+    const createdName = newYearName;
+
     setNewYearName('');
     setNewYearStart('');
     setNewYearEnd('');
+
     setMessage(
-      `${newYearName} created successfully${copyPrevious ? ' with previous fees copied.' : '.'}`
+      `${createdName} created successfully${
+        copyPrevious ? ' with previous fees copied.' : '.'
+      }`
     );
 
     setSelectedYear(newYear.id);
@@ -360,6 +373,7 @@ export default function FeeStructurePage() {
     }
 
     setMessage(`${year.name} is now the active academic year.`);
+
     await loadData();
     setSaving(false);
   }
@@ -388,6 +402,10 @@ export default function FeeStructurePage() {
       return;
     }
 
+    setSaving(true);
+    setError('');
+    setMessage('');
+
     const { error } = await sb.from('fee_structures').insert({
       academic_year_id: selectedYear,
       class_name: options.className ?? null,
@@ -404,13 +422,20 @@ export default function FeeStructurePage() {
 
     if (error) {
       setError(error.message);
+      setSaving(false);
       return;
     }
 
+    setMessage(`${feeHeadName} added successfully.`);
+
     await loadData();
+    setSaving(false);
   }
 
-  async function addMissingSchoolFee(className: string, amount: number) {
+  async function addMissingSchoolFee(
+    className: string,
+    amount: number
+  ) {
     await addFeeStructure('Composite Fee', amount, {
       className,
       frequency: 'Monthly',
@@ -461,9 +486,11 @@ export default function FeeStructurePage() {
             <p className="text-sm font-semibold text-blue-700">
               FEE MANAGEMENT
             </p>
+
             <h1 className="text-3xl font-bold text-slate-900">
               Fee Structure
             </h1>
+
             <p className="mt-1 text-slate-500">
               Manage fees separately for every academic year.
             </p>
@@ -473,18 +500,21 @@ export default function FeeStructurePage() {
             <p className="text-xs font-medium text-slate-500">
               ACTIVE SESSION
             </p>
+
             <p className="font-bold text-slate-900">
               {years.find((y) => y.is_active)?.name || 'Not selected'}
             </p>
           </div>
         </div>
 
+        {/* Error */}
         {error && (
           <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             <strong>Error:</strong> {error}
           </div>
         )}
 
+        {/* Success */}
         {message && (
           <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
             {message}
@@ -543,6 +573,7 @@ export default function FeeStructurePage() {
               <label className="mb-2 block text-sm font-semibold">
                 Session
               </label>
+
               <input
                 value={newYearName}
                 onChange={(e) => setNewYearName(e.target.value)}
@@ -555,6 +586,7 @@ export default function FeeStructurePage() {
               <label className="mb-2 block text-sm font-semibold">
                 Start Date
               </label>
+
               <input
                 type="date"
                 value={newYearStart}
@@ -567,6 +599,7 @@ export default function FeeStructurePage() {
               <label className="mb-2 block text-sm font-semibold">
                 End Date
               </label>
+
               <input
                 type="date"
                 value={newYearEnd}
@@ -574,7 +607,6 @@ export default function FeeStructurePage() {
                 className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-600"
               />
             </div>
-
           </div>
 
           <label className="mt-5 flex items-center gap-3 text-sm">
@@ -584,6 +616,7 @@ export default function FeeStructurePage() {
               onChange={(e) => setCopyPrevious(e.target.checked)}
               className="h-4 w-4"
             />
+
             <span>
               Copy {selectedYearData?.name || 'previous'} fee structure into
               the new session
@@ -605,6 +638,7 @@ export default function FeeStructurePage() {
             <h2 className="text-xl font-bold text-slate-900">
               School / Composite Fee
             </h2>
+
             <p className="text-sm text-slate-500">
               Monthly school fee for the selected academic year.
             </p>
@@ -626,7 +660,10 @@ export default function FeeStructurePage() {
                   const row = findSchoolFee(className);
 
                   return (
-                    <tr key={className} className="border-b last:border-0">
+                    <tr
+                      key={className}
+                      className="border-b last:border-0"
+                    >
                       <td className="px-3 py-4 font-semibold">
                         {className}
                       </td>
@@ -644,11 +681,16 @@ export default function FeeStructurePage() {
                             />
                           ) : (
                             <span className="font-bold">
-                              ₹{Number(row.amount || 0).toLocaleString('en-IN')}
+                              ₹
+                              {Number(
+                                row.amount || 0
+                              ).toLocaleString('en-IN')}
                             </span>
                           )
                         ) : (
-                          <span className="text-slate-400">Not configured</span>
+                          <span className="text-slate-400">
+                            Not configured
+                          </span>
                         )}
                       </td>
 
@@ -662,7 +704,8 @@ export default function FeeStructurePage() {
                             <div className="flex gap-2">
                               <button
                                 onClick={() => saveAmount(row.id)}
-                                className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white"
+                                disabled={saving}
+                                className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                               >
                                 Save
                               </button>
@@ -681,7 +724,9 @@ export default function FeeStructurePage() {
                             <button
                               onClick={() => {
                                 setEditingId(row.id);
-                                setEditAmount(String(row.amount ?? ''));
+                                setEditAmount(
+                                  String(row.amount ?? '')
+                                );
                               }}
                               className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold hover:bg-slate-50"
                             >
@@ -693,14 +738,19 @@ export default function FeeStructurePage() {
                             onClick={() =>
                               addMissingSchoolFee(
                                 className,
-                                ['Nursery', 'LKG', 'UKG'].includes(className)
+                                ['Nursery', 'LKG', 'UKG'].includes(
+                                  className
+                                )
                                   ? 600
-                                  : ['I', 'II', 'III', 'IV'].includes(className)
-                                    ? 650
-                                    : 700
+                                  : ['I', 'II', 'III', 'IV'].includes(
+                                      className
+                                    )
+                                  ? 650
+                                  : 700
                               )
                             }
-                            className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white"
+                            disabled={saving}
+                            className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                           >
                             Add
                           </button>
@@ -727,10 +777,17 @@ export default function FeeStructurePage() {
           <div className="mt-5 rounded-xl border border-slate-200 p-5">
             {findHostelFee() ? (
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+
                 <div>
-                  <p className="text-sm text-slate-500">Monthly Hostel Fee</p>
+                  <p className="text-sm text-slate-500">
+                    Monthly Hostel Fee
+                  </p>
+
                   <p className="text-2xl font-bold">
-                    ₹{Number(findHostelFee()?.amount || 0).toLocaleString('en-IN')}
+                    ₹
+                    {Number(
+                      findHostelFee()?.amount || 0
+                    ).toLocaleString('en-IN')}
                   </p>
                 </div>
 
@@ -739,13 +796,18 @@ export default function FeeStructurePage() {
                     <input
                       type="number"
                       value={editAmount}
-                      onChange={(e) => setEditAmount(e.target.value)}
+                      onChange={(e) =>
+                        setEditAmount(e.target.value)
+                      }
                       className="w-32 rounded-lg border px-3 py-2"
                     />
 
                     <button
-                      onClick={() => saveAmount(findHostelFee()!.id)}
-                      className="rounded-lg bg-blue-700 px-4 py-2 text-white"
+                      onClick={() =>
+                        saveAmount(findHostelFee()!.id)
+                      }
+                      disabled={saving}
+                      className="rounded-lg bg-blue-700 px-4 py-2 text-white disabled:opacity-50"
                     >
                       Save
                     </button>
@@ -754,7 +816,9 @@ export default function FeeStructurePage() {
                   <button
                     onClick={() => {
                       setEditingId(findHostelFee()!.id);
-                      setEditAmount(String(findHostelFee()?.amount ?? ''));
+                      setEditAmount(
+                        String(findHostelFee()?.amount ?? '')
+                      );
                     }}
                     className="rounded-lg border px-4 py-2 font-semibold"
                   >
@@ -765,7 +829,8 @@ export default function FeeStructurePage() {
             ) : (
               <button
                 onClick={addMissingHostelFee}
-                className="rounded-lg bg-blue-700 px-4 py-2 font-semibold text-white"
+                disabled={saving}
+                className="rounded-lg bg-blue-700 px-4 py-2 font-semibold text-white disabled:opacity-50"
               >
                 Add Hostel Fee ₹4,000
               </button>
@@ -827,7 +892,10 @@ export default function FeeStructurePage() {
                             />
                           ) : (
                             <span className="font-bold">
-                              ₹{Number(row.amount || 0).toLocaleString('en-IN')}
+                              ₹
+                              {Number(
+                                row.amount || 0
+                              ).toLocaleString('en-IN')}
                             </span>
                           )
                         ) : (
@@ -843,7 +911,8 @@ export default function FeeStructurePage() {
                             <div className="flex gap-2">
                               <button
                                 onClick={() => saveAmount(row.id)}
-                                className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white"
+                                disabled={saving}
+                                className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                               >
                                 Save
                               </button>
@@ -862,9 +931,11 @@ export default function FeeStructurePage() {
                             <button
                               onClick={() => {
                                 setEditingId(row.id);
-                                setEditAmount(String(row.amount ?? ''));
+                                setEditAmount(
+                                  String(row.amount ?? '')
+                                );
                               }}
-                              className="rounded-lg border px-3 py-2 text-sm font-semibold"
+                              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold"
                             >
                               Edit
                             </button>
@@ -878,7 +949,8 @@ export default function FeeStructurePage() {
                                 route.amount
                               )
                             }
-                            className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white"
+                            disabled={saving}
+                            className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                           >
                             Add
                           </button>
@@ -892,7 +964,7 @@ export default function FeeStructurePage() {
           </div>
         </section>
 
-        {/* One-time fees */}
+        {/* One-time Fees */}
         <section className="rounded-2xl bg-white p-6 shadow-sm">
           <h2 className="text-xl font-bold text-slate-900">
             One-time / Miscellaneous Fees
@@ -917,15 +989,20 @@ export default function FeeStructurePage() {
 
               <tbody>
                 {oneTimeFees.map((row) => (
-                  <tr key={row.id} className="border-b last:border-0">
+                  <tr
+                    key={row.id}
+                    className="border-b last:border-0"
+                  >
                     <td className="px-3 py-4 font-semibold">
-                      {row.fee_heads?.name || 'Fee'}
+                      {row.fee_heads?.[0]?.name || 'Fee'}
                     </td>
 
                     <td className="px-3 py-4 font-bold">
                       {row.pricing_type === 'actual'
                         ? 'As per actual'
-                        : `₹${Number(row.amount || 0).toLocaleString('en-IN')}`}
+                        : `₹${Number(
+                            row.amount || 0
+                          ).toLocaleString('en-IN')}`}
                     </td>
 
                     <td className="px-3 py-4">
@@ -940,15 +1017,48 @@ export default function FeeStructurePage() {
 
                     <td className="px-3 py-4">
                       {row.pricing_type === 'fixed' && (
-                        <button
-                          onClick={() => {
-                            setEditingId(row.id);
-                            setEditAmount(String(row.amount ?? ''));
-                          }}
-                          className="rounded-lg border px-3 py-2 text-sm font-semibold"
-                        >
-                          Edit
-                        </button>
+                        editingId === row.id ? (
+                          <div className="flex gap-2">
+                            <input
+                              type="number"
+                              value={editAmount}
+                              onChange={(e) =>
+                                setEditAmount(e.target.value)
+                              }
+                              className="w-28 rounded-lg border px-3 py-2"
+                            />
+
+                            <button
+                              onClick={() => saveAmount(row.id)}
+                              disabled={saving}
+                              className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                            >
+                              Save
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                setEditingId(null);
+                                setEditAmount('');
+                              }}
+                              className="rounded-lg border px-3 py-2 text-sm"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setEditingId(row.id);
+                              setEditAmount(
+                                String(row.amount ?? '')
+                              );
+                            }}
+                            className="rounded-lg border px-3 py-2 text-sm font-semibold"
+                          >
+                            Edit
+                          </button>
+                        )
                       )}
                     </td>
                   </tr>
