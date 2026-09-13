@@ -71,8 +71,10 @@ export default function FeeStructurePage() {
   const [structures, setStructures] = useState<FeeStructure[]>([]);
 
   const [selectedYear, setSelectedYear] = useState('');
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -84,7 +86,9 @@ export default function FeeStructurePage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editAmount, setEditAmount] = useState('');
 
-  const selectedYearData = years.find((y) => y.id === selectedYear);
+  const selectedYearData = years.find(
+    (year) => year.id === selectedYear
+  );
 
   async function loadData() {
     setLoading(true);
@@ -150,11 +154,12 @@ export default function FeeStructurePage() {
     setYears(yearsResult.data || []);
     setHeads(headsResult.data || []);
 
-    // Supabase returns the joined fee_heads relation as an array.
-    setStructures((structuresResult.data || []) as unknown as FeeStructure[]);
+    setStructures(
+      (structuresResult.data || []) as unknown as FeeStructure[]
+    );
 
     const activeYear =
-      (yearsResult.data || []).find((y) => y.is_active) ||
+      (yearsResult.data || []).find((year) => year.is_active) ||
       (yearsResult.data || [])[0];
 
     if (activeYear && !selectedYear) {
@@ -166,48 +171,61 @@ export default function FeeStructurePage() {
 
   useEffect(() => {
     loadData();
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const yearStructures = structures.filter(
-    (s) => s.academic_year_id === selectedYear
+    (structure) =>
+      structure.academic_year_id === selectedYear
   );
 
   const schoolFees = yearStructures.filter(
-    (s) =>
-      s.fee_heads?.[0]?.name === 'Composite Fee' &&
-      !s.vehicle_area &&
-      !s.hostel_only
+    (structure) =>
+      structure.fee_heads?.[0]?.name === 'Composite Fee' &&
+      !structure.vehicle_area &&
+      !structure.hostel_only
   );
 
   const hostelFees = yearStructures.filter(
-    (s) => s.fee_heads?.[0]?.name === 'Hostel Fee'
+    (structure) =>
+      structure.fee_heads?.[0]?.name === 'Hostel Fee'
   );
 
   const vehicleFees = yearStructures.filter(
-    (s) => s.fee_heads?.[0]?.name === 'Vehicle Fee'
+    (structure) =>
+      structure.fee_heads?.[0]?.name === 'Vehicle Fee'
   );
 
   const oneTimeFees = yearStructures.filter(
-    (s) =>
-      s.frequency === 'One-time' &&
-      s.fee_heads?.[0]?.name !== 'Composite Fee' &&
-      s.fee_heads?.[0]?.name !== 'Vehicle Fee' &&
-      s.fee_heads?.[0]?.name !== 'Hostel Fee'
+    (structure) =>
+      structure.frequency === 'One-time' &&
+      structure.fee_heads?.[0]?.name !== 'Composite Fee' &&
+      structure.fee_heads?.[0]?.name !== 'Vehicle Fee' &&
+      structure.fee_heads?.[0]?.name !== 'Hostel Fee'
   );
 
   function findSchoolFee(className: string) {
-    return schoolFees.find((s) => s.class_name === className);
+    return schoolFees.find(
+      (structure) => structure.class_name === className
+    );
   }
 
   function findVehicleFee(area: string) {
-    return vehicleFees.find((s) =>
-      s.vehicle_area?.toLowerCase().includes(area.toLowerCase())
+    return vehicleFees.find((structure) =>
+      structure.vehicle_area
+        ?.toLowerCase()
+        .includes(area.toLowerCase())
     );
   }
 
   function findHostelFee() {
     return hostelFees[0];
+  }
+
+  function clearMessages() {
+    setError('');
+    setMessage('');
   }
 
   async function saveAmount(id: string) {
@@ -219,96 +237,119 @@ export default function FeeStructurePage() {
     }
 
     setSaving(true);
-    setError('');
-    setMessage('');
+    clearMessages();
 
-    const { error } = await sb
+    const { error: updateError } = await sb
       .from('fee_structures')
       .update({
         amount,
       })
       .eq('id', id);
 
-    if (error) {
-      setError(error.message);
+    if (updateError) {
+      setError(updateError.message);
       setSaving(false);
       return;
     }
 
     setEditingId(null);
     setEditAmount('');
+
     setMessage('Fee updated successfully.');
 
     await loadData();
+
     setSaving(false);
   }
 
   async function createNewAcademicYear() {
-    if (!newYearName || !newYearStart || !newYearEnd) {
-      setError('Enter session name, start date and end date.');
+    if (
+      !newYearName ||
+      !newYearStart ||
+      !newYearEnd
+    ) {
+      setError(
+        'Enter session name, start date and end date.'
+      );
       return;
     }
 
-    if (years.some((y) => y.name === newYearName)) {
+    if (
+      years.some(
+        (year) => year.name === newYearName
+      )
+    ) {
       setError('This academic year already exists.');
       return;
     }
 
     setSaving(true);
-    setError('');
-    setMessage('');
+    clearMessages();
 
-    const { data: newYear, error: yearError } = await sb
-      .from('academic_years')
-      .insert({
-        name: newYearName,
-        start_date: newYearStart,
-        end_date: newYearEnd,
-        is_active: false,
-        is_locked: false,
-      })
-      .select()
-      .single();
+    const { data: newYear, error: yearError } =
+      await sb
+        .from('academic_years')
+        .insert({
+          name: newYearName,
+          start_date: newYearStart,
+          end_date: newYearEnd,
+          is_active: false,
+          is_locked: false,
+        })
+        .select()
+        .single();
 
     if (yearError || !newYear) {
-      setError(yearError?.message || 'Could not create academic year.');
+      setError(
+        yearError?.message ||
+          'Could not create academic year.'
+      );
+
       setSaving(false);
       return;
     }
 
     if (copyPrevious && selectedYear) {
-      const previousStructures = structures.filter(
-        (s) => s.academic_year_id === selectedYear
-      );
+      const previousStructures =
+        structures.filter(
+          (structure) =>
+            structure.academic_year_id ===
+            selectedYear
+        );
 
       if (previousStructures.length > 0) {
-        const copiedRows = previousStructures.map((s) => ({
-          academic_year_id: newYear.id,
-          class_name: s.class_name,
-          fee_head_id: s.fee_head_id,
-          amount: s.amount,
-          frequency: s.frequency,
-          hostel_only: s.hostel_only,
-          vehicle_area: s.vehicle_area,
-          applicable_to: s.applicable_to,
-          pricing_type: s.pricing_type,
-          effective_from: newYearStart,
-          effective_to: null,
-          active: true,
-          notes: `Copied from ${
-            selectedYearData?.name || 'previous session'
-          }`,
-        }));
+        const copiedRows =
+          previousStructures.map((structure) => ({
+            academic_year_id: newYear.id,
+            class_name: structure.class_name,
+            fee_head_id: structure.fee_head_id,
+            amount: structure.amount,
+            frequency: structure.frequency,
+            hostel_only: structure.hostel_only,
+            vehicle_area: structure.vehicle_area,
+            applicable_to: structure.applicable_to,
+            pricing_type: structure.pricing_type,
+            effective_from: newYearStart,
+            effective_to: null,
+            active: true,
+            notes: `Copied from ${
+              selectedYearData?.name ||
+              'previous session'
+            }`,
+          }));
 
-        const { error: copyError } = await sb
-          .from('fee_structures')
-          .insert(copiedRows);
+        const { error: copyError } =
+          await sb
+            .from('fee_structures')
+            .insert(copiedRows);
 
         if (copyError) {
           setError(
             `Academic year created, but fee copy failed: ${copyError.message}`
           );
+
           await loadData();
+
           setSaving(false);
           return;
         }
@@ -323,37 +364,40 @@ export default function FeeStructurePage() {
 
     setMessage(
       `${createdName} created successfully${
-        copyPrevious ? ' with previous fees copied.' : '.'
+        copyPrevious
+          ? ' with previous fees copied.'
+          : '.'
       }`
     );
 
     setSelectedYear(newYear.id);
 
     await loadData();
+
     setSaving(false);
   }
 
   async function activateYear(id: string) {
-    const year = years.find((y) => y.id === id);
+    const year = years.find(
+      (item) => item.id === id
+    );
 
     if (!year) return;
 
-    if (
-      !confirm(
-        `Activate ${year.name}?\n\nThis will make ${year.name} the current academic year.`
-      )
-    ) {
-      return;
-    }
+    const confirmed = window.confirm(
+      `Activate ${year.name}?\n\nThis will make ${year.name} the current academic year.`
+    );
+
+    if (!confirmed) return;
 
     setSaving(true);
-    setError('');
-    setMessage('');
+    clearMessages();
 
-    const { error: deactivateError } = await sb
-      .from('academic_years')
-      .update({ is_active: false })
-      .neq('id', id);
+    const { error: deactivateError } =
+      await sb
+        .from('academic_years')
+        .update({ is_active: false })
+        .neq('id', id);
 
     if (deactivateError) {
       setError(deactivateError.message);
@@ -361,10 +405,11 @@ export default function FeeStructurePage() {
       return;
     }
 
-    const { error: activateError } = await sb
-      .from('academic_years')
-      .update({ is_active: true })
-      .eq('id', id);
+    const { error: activateError } =
+      await sb
+        .from('academic_years')
+        .update({ is_active: true })
+        .eq('id', id);
 
     if (activateError) {
       setError(activateError.message);
@@ -372,9 +417,12 @@ export default function FeeStructurePage() {
       return;
     }
 
-    setMessage(`${year.name} is now the active academic year.`);
+    setMessage(
+      `${year.name} is now the active academic year.`
+    );
 
     await loadData();
+
     setSaving(false);
   }
 
@@ -391,44 +439,63 @@ export default function FeeStructurePage() {
     } = {}
   ) {
     if (!selectedYear) {
-      setError('Select an academic year first.');
+      setError(
+        'Select an academic year first.'
+      );
       return;
     }
 
-    const head = heads.find((h) => h.name === feeHeadName);
+    const head = heads.find(
+      (item) => item.name === feeHeadName
+    );
 
     if (!head) {
-      setError(`Fee head "${feeHeadName}" was not found.`);
+      setError(
+        `Fee head "${feeHeadName}" was not found.`
+      );
       return;
     }
 
     setSaving(true);
-    setError('');
-    setMessage('');
+    clearMessages();
 
-    const { error } = await sb.from('fee_structures').insert({
-      academic_year_id: selectedYear,
-      class_name: options.className ?? null,
-      fee_head_id: head.id,
-      amount,
-      frequency: options.frequency || 'Monthly',
-      hostel_only: options.hostelOnly || false,
-      vehicle_area: options.vehicleArea ?? null,
-      applicable_to: options.applicableTo ?? null,
-      pricing_type: options.pricingType || 'fixed',
-      effective_from: selectedYearData?.start_date || null,
-      active: true,
-    });
+    const { error: insertError } =
+      await sb
+        .from('fee_structures')
+        .insert({
+          academic_year_id: selectedYear,
+          class_name:
+            options.className ?? null,
+          fee_head_id: head.id,
+          amount,
+          frequency:
+            options.frequency || 'Monthly',
+          hostel_only:
+            options.hostelOnly || false,
+          vehicle_area:
+            options.vehicleArea ?? null,
+          applicable_to:
+            options.applicableTo ?? null,
+          pricing_type:
+            options.pricingType || 'fixed',
+          effective_from:
+            selectedYearData?.start_date ||
+            null,
+          active: true,
+        });
 
-    if (error) {
-      setError(error.message);
+    if (insertError) {
+      setError(insertError.message);
       setSaving(false);
       return;
     }
 
-    setMessage(`${feeHeadName} added successfully.`);
+    setMessage(
+      `${feeHeadName} added successfully.`
+    );
 
     await loadData();
+
     setSaving(false);
   }
 
@@ -436,21 +503,29 @@ export default function FeeStructurePage() {
     className: string,
     amount: number
   ) {
-    await addFeeStructure('Composite Fee', amount, {
-      className,
-      frequency: 'Monthly',
-      pricingType: 'fixed',
-      applicableTo: 'all',
-    });
+    await addFeeStructure(
+      'Composite Fee',
+      amount,
+      {
+        className,
+        frequency: 'Monthly',
+        pricingType: 'fixed',
+        applicableTo: 'all',
+      }
+    );
   }
 
   async function addMissingHostelFee() {
-    await addFeeStructure('Hostel Fee', 4000, {
-      frequency: 'Monthly',
-      hostelOnly: true,
-      applicableTo: 'hosteller',
-      pricingType: 'fixed',
-    });
+    await addFeeStructure(
+      'Hostel Fee',
+      4000,
+      {
+        frequency: 'Monthly',
+        hostelOnly: true,
+        applicableTo: 'hosteller',
+        pricingType: 'fixed',
+      }
+    );
   }
 
   async function addMissingVehicleFee(
@@ -458,18 +533,51 @@ export default function FeeStructurePage() {
     area: string,
     amount: number
   ) {
-    await addFeeStructure('Vehicle Fee', amount, {
-      frequency: 'Monthly',
-      vehicleArea: `${route} - ${area}`,
-      applicableTo: 'vehicle_area',
-      pricingType: 'fixed',
-    });
+    await addFeeStructure(
+      'Vehicle Fee',
+      amount,
+      {
+        frequency: 'Monthly',
+        vehicleArea: `${route} - ${area}`,
+        applicableTo: 'vehicle_area',
+        pricingType: 'fixed',
+      }
+    );
+  }
+
+  function startEditing(
+    structure: FeeStructure
+  ) {
+    setEditingId(structure.id);
+    setEditAmount(
+      String(structure.amount ?? '')
+    );
+    clearMessages();
+  }
+
+  function cancelEditing() {
+    setEditingId(null);
+    setEditAmount('');
   }
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-slate-50 p-8">
-        <div className="rounded-2xl bg-white p-8 shadow-sm">
+      <main className="main">
+        <div className="page-head">
+          <div>
+            <p className="muted">
+              FEE MANAGEMENT
+            </p>
+
+            <h1>Fee Structure</h1>
+
+            <p className="muted">
+              Loading fee structure...
+            </p>
+          </div>
+        </div>
+
+        <div className="card">
           Loading fee structure...
         </div>
       </main>
@@ -477,282 +585,401 @@ export default function FeeStructurePage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 p-6 md:p-8">
-      <div className="mx-auto max-w-7xl space-y-6">
+    <main className="main">
+      <div className="fee-page">
 
-        {/* Header */}
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        {/* =====================================================
+            HEADER
+        ====================================================== */}
+
+        <div className="page-head">
           <div>
-            <p className="text-sm font-semibold text-blue-700">
+            <p
+              style={{
+                margin: 0,
+                color: '#2563eb',
+                fontSize: '13px',
+                fontWeight: 800,
+                letterSpacing: '0.05em',
+              }}
+            >
               FEE MANAGEMENT
             </p>
 
-            <h1 className="text-3xl font-bold text-slate-900">
-              Fee Structure
-            </h1>
+            <h1>Fee Structure</h1>
 
-            <p className="mt-1 text-slate-500">
-              Manage fees separately for every academic year.
+            <p className="muted">
+              Manage fees separately for every
+              academic year.
             </p>
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-            <p className="text-xs font-medium text-slate-500">
+          <div className="fee-active-session">
+            <div className="fee-active-session-label">
               ACTIVE SESSION
-            </p>
+            </div>
 
-            <p className="font-bold text-slate-900">
-              {years.find((y) => y.is_active)?.name || 'Not selected'}
-            </p>
+            <div className="fee-active-session-value">
+              {years.find(
+                (year) => year.is_active
+              )?.name || 'Not selected'}
+            </div>
           </div>
         </div>
 
-        {/* Error */}
+        {/* =====================================================
+            ALERTS
+        ====================================================== */}
+
         {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div className="error" style={{ marginBottom: 16 }}>
             <strong>Error:</strong> {error}
           </div>
         )}
 
-        {/* Success */}
         {message && (
-          <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+          <div
+            className="success"
+            style={{ marginBottom: 16 }}
+          >
             {message}
           </div>
         )}
 
-        {/* Academic Year */}
-        <section className="rounded-2xl bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        {/* =====================================================
+            ACADEMIC YEAR
+        ====================================================== */}
 
-            <div className="w-full lg:max-w-sm">
-              <label className="mb-2 block text-sm font-semibold text-slate-700">
-                Academic Year
-              </label>
+        <section className="fee-section">
+          <div className="fee-section-header">
+            <h2>Academic Year</h2>
 
-              <select
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-blue-600"
-              >
-                {years.map((year) => (
-                  <option key={year.id} value={year.id}>
-                    {year.name}
-                    {year.is_active ? ' — ACTIVE' : ''}
-                    {year.is_locked ? ' — LOCKED' : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {selectedYearData && !selectedYearData.is_active && (
-              <button
-                onClick={() => activateYear(selectedYear)}
-                disabled={saving || selectedYearData.is_locked}
-                className="rounded-xl bg-blue-700 px-5 py-3 font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
-              >
-                Activate {selectedYearData.name}
-              </button>
-            )}
-          </div>
-        </section>
-
-        {/* Create New Year */}
-        <section className="rounded-2xl bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-bold text-slate-900">
-            Create New Academic Year
-          </h2>
-
-          <p className="mt-1 text-sm text-slate-500">
-            Create the next session without changing any historical fees.
-          </p>
-
-          <div className="mt-5 grid gap-4 md:grid-cols-3">
-
-            <div>
-              <label className="mb-2 block text-sm font-semibold">
-                Session
-              </label>
-
-              <input
-                value={newYearName}
-                onChange={(e) => setNewYearName(e.target.value)}
-                placeholder="2027-28"
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-600"
-              />
-            </div>
-
-            <div>
-              <label className="mb-2 block text-sm font-semibold">
-                Start Date
-              </label>
-
-              <input
-                type="date"
-                value={newYearStart}
-                onChange={(e) => setNewYearStart(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-600"
-              />
-            </div>
-
-            <div>
-              <label className="mb-2 block text-sm font-semibold">
-                End Date
-              </label>
-
-              <input
-                type="date"
-                value={newYearEnd}
-                onChange={(e) => setNewYearEnd(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-600"
-              />
-            </div>
-          </div>
-
-          <label className="mt-5 flex items-center gap-3 text-sm">
-            <input
-              type="checkbox"
-              checked={copyPrevious}
-              onChange={(e) => setCopyPrevious(e.target.checked)}
-              className="h-4 w-4"
-            />
-
-            <span>
-              Copy {selectedYearData?.name || 'previous'} fee structure into
-              the new session
-            </span>
-          </label>
-
-          <button
-            onClick={createNewAcademicYear}
-            disabled={saving}
-            className="mt-5 rounded-xl bg-slate-900 px-6 py-3 font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
-          >
-            {saving ? 'Saving...' : 'Create Academic Year'}
-          </button>
-        </section>
-
-        {/* School Fees */}
-        <section className="rounded-2xl bg-white p-6 shadow-sm">
-          <div className="mb-5">
-            <h2 className="text-xl font-bold text-slate-900">
-              School / Composite Fee
-            </h2>
-
-            <p className="text-sm text-slate-500">
-              Monthly school fee for the selected academic year.
+            <p>
+              Select the session whose fee structure
+              you want to manage.
             </p>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[650px]">
+          <div className="fee-session-card">
+
+            <div style={{ width: '100%', maxWidth: 420 }}>
+              <label className="label">
+                Academic Year
+
+                <select
+                  className="select"
+                  value={selectedYear}
+                  onChange={(event) =>
+                    setSelectedYear(
+                      event.target.value
+                    )
+                  }
+                >
+                  {years.map((year) => (
+                    <option
+                      key={year.id}
+                      value={year.id}
+                    >
+                      {year.name}
+                      {year.is_active
+                        ? ' — ACTIVE'
+                        : ''}
+                      {year.is_locked
+                        ? ' — LOCKED'
+                        : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {selectedYearData &&
+              !selectedYearData.is_active && (
+                <button
+                  className="btn"
+                  onClick={() =>
+                    activateYear(selectedYear)
+                  }
+                  disabled={
+                    saving ||
+                    selectedYearData.is_locked
+                  }
+                >
+                  Activate{' '}
+                  {selectedYearData.name}
+                </button>
+              )}
+          </div>
+        </section>
+
+        {/* =====================================================
+            CREATE NEW ACADEMIC YEAR
+        ====================================================== */}
+
+        <section className="fee-section">
+          <div className="fee-section-header">
+            <h2>
+              Create New Academic Year
+            </h2>
+
+            <p>
+              Create the next session without
+              changing historical fees.
+            </p>
+          </div>
+
+          <div
+            className="grid2"
+            style={{
+              gridTemplateColumns:
+                'repeat(3, minmax(0, 1fr))',
+            }}
+          >
+            <label className="label">
+              Session
+
+              <input
+                className="input"
+                value={newYearName}
+                onChange={(event) =>
+                  setNewYearName(
+                    event.target.value
+                  )
+                }
+                placeholder="2027-28"
+              />
+            </label>
+
+            <label className="label">
+              Start Date
+
+              <input
+                className="input"
+                type="date"
+                value={newYearStart}
+                onChange={(event) =>
+                  setNewYearStart(
+                    event.target.value
+                  )
+                }
+              />
+            </label>
+
+            <label className="label">
+              End Date
+
+              <input
+                className="input"
+                type="date"
+                value={newYearEnd}
+                onChange={(event) =>
+                  setNewYearEnd(
+                    event.target.value
+                  )
+                }
+              />
+            </label>
+          </div>
+
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              marginTop: 20,
+              fontSize: 14,
+              cursor: 'pointer',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={copyPrevious}
+              onChange={(event) =>
+                setCopyPrevious(
+                  event.target.checked
+                )
+              }
+            />
+
+            <span>
+              Copy{' '}
+              <strong>
+                {selectedYearData?.name ||
+                  'previous'}
+              </strong>{' '}
+              fee structure into the new
+              session
+            </span>
+          </label>
+
+          <div style={{ marginTop: 20 }}>
+            <button
+              className="btn"
+              onClick={
+                createNewAcademicYear
+              }
+              disabled={saving}
+            >
+              {saving
+                ? 'Creating...'
+                : 'Create Academic Year'}
+            </button>
+          </div>
+        </section>
+
+        {/* =====================================================
+            SCHOOL / COMPOSITE FEE
+        ====================================================== */}
+
+        <section className="fee-section">
+          <div className="fee-section-header">
+            <h2>
+              🏫 School / Composite Fee
+            </h2>
+
+            <p>
+              Monthly school fee for the
+              selected academic year.
+            </p>
+          </div>
+
+          <div className="fee-table-wrap">
+            <table className="fee-table">
               <thead>
-                <tr className="border-b text-left text-sm text-slate-500">
-                  <th className="px-3 py-3">Class</th>
-                  <th className="px-3 py-3">Monthly Fee</th>
-                  <th className="px-3 py-3">Frequency</th>
-                  <th className="px-3 py-3">Action</th>
+                <tr>
+                  <th>Class</th>
+                  <th>Monthly Fee</th>
+                  <th>Frequency</th>
+                  <th>Applicable To</th>
+                  <th>Action</th>
                 </tr>
               </thead>
 
               <tbody>
                 {CLASSES.map((className) => {
-                  const row = findSchoolFee(className);
+                  const row =
+                    findSchoolFee(className);
 
                   return (
-                    <tr
-                      key={className}
-                      className="border-b last:border-0"
-                    >
-                      <td className="px-3 py-4 font-semibold">
-                        {className}
+                    <tr key={className}>
+                      <td>
+                        <strong>
+                          {className}
+                        </strong>
                       </td>
 
-                      <td className="px-3 py-4">
+                      <td>
                         {row ? (
-                          editingId === row.id ? (
+                          editingId ===
+                          row.id ? (
                             <input
+                              className="fee-number"
                               type="number"
+                              min="0"
                               value={editAmount}
-                              onChange={(e) =>
-                                setEditAmount(e.target.value)
+                              onChange={(event) =>
+                                setEditAmount(
+                                  event.target
+                                    .value
+                                )
                               }
-                              className="w-32 rounded-lg border border-slate-300 px-3 py-2"
                             />
                           ) : (
-                            <span className="font-bold">
+                            <span className="fee-amount">
                               ₹
                               {Number(
                                 row.amount || 0
-                              ).toLocaleString('en-IN')}
+                              ).toLocaleString(
+                                'en-IN'
+                              )}
                             </span>
                           )
                         ) : (
-                          <span className="text-slate-400">
+                          <span className="fee-not-configured">
                             Not configured
                           </span>
                         )}
                       </td>
 
-                      <td className="px-3 py-4 text-sm text-slate-500">
-                        {row?.frequency || 'Monthly'}
+                      <td>
+                        <span className="badge">
+                          {row?.frequency ||
+                            'Monthly'}
+                        </span>
                       </td>
 
-                      <td className="px-3 py-4">
+                      <td>
+                        <span className="badge green">
+                          {row?.applicable_to ||
+                            'all'}
+                        </span>
+                      </td>
+
+                      <td>
                         {row ? (
-                          editingId === row.id ? (
-                            <div className="flex gap-2">
+                          editingId ===
+                          row.id ? (
+                            <div className="fee-action-group">
                               <button
-                                onClick={() => saveAmount(row.id)}
+                                className="btn small"
+                                onClick={() =>
+                                  saveAmount(
+                                    row.id
+                                  )
+                                }
                                 disabled={saving}
-                                className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                               >
                                 Save
                               </button>
 
                               <button
-                                onClick={() => {
-                                  setEditingId(null);
-                                  setEditAmount('');
-                                }}
-                                className="rounded-lg border px-3 py-2 text-sm"
+                                className="btn secondary small"
+                                onClick={
+                                  cancelEditing
+                                }
                               >
                                 Cancel
                               </button>
                             </div>
                           ) : (
                             <button
-                              onClick={() => {
-                                setEditingId(row.id);
-                                setEditAmount(
-                                  String(row.amount ?? '')
-                                );
-                              }}
-                              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold hover:bg-slate-50"
+                              className="fee-edit"
+                              onClick={() =>
+                                startEditing(row)
+                              }
                             >
                               Edit
                             </button>
                           )
                         ) : (
                           <button
+                            className="fee-add"
                             onClick={() =>
                               addMissingSchoolFee(
                                 className,
-                                ['Nursery', 'LKG', 'UKG'].includes(
+                                [
+                                  'Nursery',
+                                  'LKG',
+                                  'UKG',
+                                ].includes(
                                   className
                                 )
                                   ? 600
-                                  : ['I', 'II', 'III', 'IV'].includes(
-                                      className
-                                    )
-                                  ? 650
-                                  : 700
+                                  : [
+                                        'I',
+                                        'II',
+                                        'III',
+                                        'IV',
+                                      ].includes(
+                                        className
+                                      )
+                                    ? 650
+                                    : 700
                               )
                             }
                             disabled={saving}
-                            className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                           >
-                            Add
+                            + Add
                           </button>
                         )}
                       </td>
@@ -764,184 +991,277 @@ export default function FeeStructurePage() {
           </div>
         </section>
 
-        {/* Hostel */}
-        <section className="rounded-2xl bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-bold text-slate-900">
-            Hostel Fee
-          </h2>
+        {/* =====================================================
+            HOSTEL FEE
+        ====================================================== */}
 
-          <p className="mt-1 text-sm text-slate-500">
-            Applied only to students marked as hostellers.
-          </p>
+        <section className="fee-section">
+          <div className="fee-section-header">
+            <h2>🏠 Hostel Fee</h2>
 
-          <div className="mt-5 rounded-xl border border-slate-200 p-5">
+            <p>
+              Applied only to students marked
+              as hostellers.
+            </p>
+          </div>
+
+          <div className="card">
             {findHostelFee() ? (
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent:
+                    'space-between',
+                  alignItems: 'center',
+                  gap: 20,
+                  flexWrap: 'wrap',
+                }}
+              >
                 <div>
-                  <p className="text-sm text-slate-500">
+                  <div className="metric-label">
                     Monthly Hostel Fee
-                  </p>
+                  </div>
 
-                  <p className="text-2xl font-bold">
-                    ₹
-                    {Number(
-                      findHostelFee()?.amount || 0
-                    ).toLocaleString('en-IN')}
-                  </p>
+                  {editingId ===
+                  findHostelFee()?.id ? (
+                    <input
+                      className="fee-number"
+                      type="number"
+                      min="0"
+                      value={editAmount}
+                      onChange={(event) =>
+                        setEditAmount(
+                          event.target.value
+                        )
+                      }
+                    />
+                  ) : (
+                    <div
+                      className="metric"
+                      style={{
+                        fontSize: 26,
+                      }}
+                    >
+                      ₹
+                      {Number(
+                        findHostelFee()
+                          ?.amount || 0
+                      ).toLocaleString(
+                        'en-IN'
+                      )}
+                    </div>
+                  )}
                 </div>
 
-                {editingId === findHostelFee()?.id ? (
-                  <div className="flex gap-2">
-                    <input
-                      type="number"
-                      value={editAmount}
-                      onChange={(e) =>
-                        setEditAmount(e.target.value)
-                      }
-                      className="w-32 rounded-lg border px-3 py-2"
-                    />
-
+                {editingId ===
+                findHostelFee()?.id ? (
+                  <div className="fee-action-group">
                     <button
+                      className="btn"
                       onClick={() =>
-                        saveAmount(findHostelFee()!.id)
+                        saveAmount(
+                          findHostelFee()!.id
+                        )
                       }
                       disabled={saving}
-                      className="rounded-lg bg-blue-700 px-4 py-2 text-white disabled:opacity-50"
                     >
                       Save
+                    </button>
+
+                    <button
+                      className="btn secondary"
+                      onClick={
+                        cancelEditing
+                      }
+                    >
+                      Cancel
                     </button>
                   </div>
                 ) : (
                   <button
-                    onClick={() => {
-                      setEditingId(findHostelFee()!.id);
-                      setEditAmount(
-                        String(findHostelFee()?.amount ?? '')
-                      );
-                    }}
-                    className="rounded-lg border px-4 py-2 font-semibold"
+                    className="fee-edit"
+                    onClick={() =>
+                      startEditing(
+                        findHostelFee()!
+                      )
+                    }
                   >
-                    Edit
+                    Edit Fee
                   </button>
                 )}
               </div>
             ) : (
-              <button
-                onClick={addMissingHostelFee}
-                disabled={saving}
-                className="rounded-lg bg-blue-700 px-4 py-2 font-semibold text-white disabled:opacity-50"
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent:
+                    'space-between',
+                  alignItems: 'center',
+                  gap: 20,
+                  flexWrap: 'wrap',
+                }}
               >
-                Add Hostel Fee ₹4,000
-              </button>
+                <div>
+                  <strong>
+                    Hostel fee is not configured
+                  </strong>
+
+                  <p className="muted">
+                    Default setup: ₹4,000/month
+                  </p>
+                </div>
+
+                <button
+                  className="btn"
+                  onClick={
+                    addMissingHostelFee
+                  }
+                  disabled={saving}
+                >
+                  + Add Hostel Fee ₹4,000
+                </button>
+              </div>
             )}
           </div>
         </section>
 
-        {/* Vehicle */}
-        <section className="rounded-2xl bg-white p-6 shadow-sm">
-          <div className="mb-5">
-            <h2 className="text-xl font-bold text-slate-900">
-              Vehicle / Van Fee
-            </h2>
+        {/* =====================================================
+            VEHICLE / VAN
+        ====================================================== */}
 
-            <p className="mt-1 text-sm text-slate-500">
-              Route-specific monthly fee. A student will have one selected
-              route.
+        <section className="fee-section">
+          <div className="fee-section-header">
+            <h2>🚌 Vehicle / Van Fee</h2>
+
+            <p>
+              Route-specific monthly fee.
+              Each student can have one
+              selected vehicle route.
             </p>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[750px]">
+          <div className="fee-table-wrap">
+            <table className="fee-table">
               <thead>
-                <tr className="border-b text-left text-sm text-slate-500">
-                  <th className="px-3 py-3">Route</th>
-                  <th className="px-3 py-3">Area</th>
-                  <th className="px-3 py-3">Monthly Fee</th>
-                  <th className="px-3 py-3">Action</th>
+                <tr>
+                  <th>Route</th>
+                  <th>Area</th>
+                  <th>Monthly Fee</th>
+                  <th>Pricing</th>
+                  <th>Action</th>
                 </tr>
               </thead>
 
               <tbody>
                 {ROUTES.map((route) => {
-                  const row = findVehicleFee(route.area);
+                  const row =
+                    findVehicleFee(
+                      route.area
+                    );
 
                   return (
-                    <tr
-                      key={route.route}
-                      className="border-b last:border-0"
-                    >
-                      <td className="px-3 py-4 font-semibold">
-                        {route.route}
+                    <tr key={route.route}>
+                      <td>
+                        <strong>
+                          {route.route}
+                        </strong>
                       </td>
 
-                      <td className="px-3 py-4">
+                      <td>
                         {route.area}
                       </td>
 
-                      <td className="px-3 py-4">
+                      <td>
                         {row ? (
-                          editingId === row.id ? (
+                          editingId ===
+                          row.id ? (
                             <input
+                              className="fee-number"
                               type="number"
+                              min="0"
                               value={editAmount}
-                              onChange={(e) =>
-                                setEditAmount(e.target.value)
+                              onChange={(event) =>
+                                setEditAmount(
+                                  event.target
+                                    .value
+                                )
                               }
-                              className="w-32 rounded-lg border px-3 py-2"
                             />
                           ) : (
-                            <span className="font-bold">
+                            <span className="fee-amount">
                               ₹
                               {Number(
                                 row.amount || 0
-                              ).toLocaleString('en-IN')}
+                              ).toLocaleString(
+                                'en-IN'
+                              )}
                             </span>
                           )
                         ) : (
-                          <span className="text-slate-400">
+                          <span className="fee-not-configured">
                             Not configured
                           </span>
                         )}
                       </td>
 
-                      <td className="px-3 py-4">
+                      <td>
                         {row ? (
-                          editingId === row.id ? (
-                            <div className="flex gap-2">
+                          row.pricing_type ===
+                          'actual' ? (
+                            <span className="badge amber">
+                              As per actual
+                            </span>
+                          ) : (
+                            <span className="badge">
+                              Fixed
+                            </span>
+                          )
+                        ) : (
+                          <span className="badge">
+                            Fixed
+                          </span>
+                        )}
+                      </td>
+
+                      <td>
+                        {row ? (
+                          editingId ===
+                          row.id ? (
+                            <div className="fee-action-group">
                               <button
-                                onClick={() => saveAmount(row.id)}
+                                className="btn small"
+                                onClick={() =>
+                                  saveAmount(
+                                    row.id
+                                  )
+                                }
                                 disabled={saving}
-                                className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                               >
                                 Save
                               </button>
 
                               <button
-                                onClick={() => {
-                                  setEditingId(null);
-                                  setEditAmount('');
-                                }}
-                                className="rounded-lg border px-3 py-2 text-sm"
+                                className="btn secondary small"
+                                onClick={
+                                  cancelEditing
+                                }
                               >
                                 Cancel
                               </button>
                             </div>
                           ) : (
                             <button
-                              onClick={() => {
-                                setEditingId(row.id);
-                                setEditAmount(
-                                  String(row.amount ?? '')
-                                );
-                              }}
-                              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold"
+                              className="fee-edit"
+                              onClick={() =>
+                                startEditing(row)
+                              }
                             >
                               Edit
                             </button>
                           )
                         ) : (
                           <button
+                            className="fee-add"
                             onClick={() =>
                               addMissingVehicleFee(
                                 route.route,
@@ -950,9 +1270,8 @@ export default function FeeStructurePage() {
                               )
                             }
                             disabled={saving}
-                            className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                           >
-                            Add
+                            + Add
                           </button>
                         )}
                       </td>
@@ -964,102 +1283,134 @@ export default function FeeStructurePage() {
           </div>
         </section>
 
-        {/* One-time Fees */}
-        <section className="rounded-2xl bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-bold text-slate-900">
-            One-time / Miscellaneous Fees
-          </h2>
+        {/* =====================================================
+            ONE TIME / MISCELLANEOUS
+        ====================================================== */}
 
-          <p className="mt-1 text-sm text-slate-500">
-            Admission, registration, books, tie & belt, festivals,
-            examination and other charges will appear here.
-          </p>
+        <section className="fee-section">
+          <div className="fee-section-header">
+            <h2>
+              📚 One-time / Miscellaneous Fees
+            </h2>
 
-          <div className="mt-5 overflow-x-auto">
-            <table className="w-full min-w-[700px]">
+            <p>
+              Admission, registration, books,
+              tie &amp; belt, festivals,
+              examination and other special
+              charges.
+            </p>
+          </div>
+
+          <div className="fee-table-wrap">
+            <table className="fee-table">
               <thead>
-                <tr className="border-b text-left text-sm text-slate-500">
-                  <th className="px-3 py-3">Fee Head</th>
-                  <th className="px-3 py-3">Amount</th>
-                  <th className="px-3 py-3">Pricing</th>
-                  <th className="px-3 py-3">Frequency</th>
-                  <th className="px-3 py-3">Action</th>
+                <tr>
+                  <th>Fee Head</th>
+                  <th>Amount</th>
+                  <th>Pricing</th>
+                  <th>Frequency</th>
+                  <th>Action</th>
                 </tr>
               </thead>
 
               <tbody>
                 {oneTimeFees.map((row) => (
-                  <tr
-                    key={row.id}
-                    className="border-b last:border-0"
-                  >
-                    <td className="px-3 py-4 font-semibold">
-                      {row.fee_heads?.[0]?.name || 'Fee'}
+                  <tr key={row.id}>
+                    <td>
+                      <strong>
+                        {row.fee_heads?.[0]
+                          ?.name ||
+                          'Fee'}
+                      </strong>
                     </td>
 
-                    <td className="px-3 py-4 font-bold">
-                      {row.pricing_type === 'actual'
-                        ? 'As per actual'
-                        : `₹${Number(
+                    <td>
+                      {row.pricing_type ===
+                      'actual' ? (
+                        <span className="badge amber">
+                          As per actual
+                        </span>
+                      ) : (
+                        <span className="fee-amount">
+                          ₹
+                          {Number(
                             row.amount || 0
-                          ).toLocaleString('en-IN')}`}
+                          ).toLocaleString(
+                            'en-IN'
+                          )}
+                        </span>
+                      )}
                     </td>
 
-                    <td className="px-3 py-4">
-                      {row.pricing_type === 'actual'
-                        ? 'As per actual'
-                        : 'Fixed'}
+                    <td>
+                      {row.pricing_type ===
+                      'actual' ? (
+                        <span className="badge amber">
+                          Actual
+                        </span>
+                      ) : (
+                        <span className="badge">
+                          Fixed
+                        </span>
+                      )}
                     </td>
 
-                    <td className="px-3 py-4">
-                      {row.frequency}
+                    <td>
+                      <span className="badge">
+                        {row.frequency}
+                      </span>
                     </td>
 
-                    <td className="px-3 py-4">
-                      {row.pricing_type === 'fixed' && (
-                        editingId === row.id ? (
-                          <div className="flex gap-2">
+                    <td>
+                      {row.pricing_type ===
+                        'fixed' &&
+                        (editingId ===
+                        row.id ? (
+                          <div className="fee-action-group">
                             <input
+                              className="fee-number"
                               type="number"
+                              min="0"
                               value={editAmount}
-                              onChange={(e) =>
-                                setEditAmount(e.target.value)
+                              onChange={(event) =>
+                                setEditAmount(
+                                  event.target
+                                    .value
+                                )
                               }
-                              className="w-28 rounded-lg border px-3 py-2"
                             />
 
                             <button
-                              onClick={() => saveAmount(row.id)}
+                              className="btn small"
+                              onClick={() =>
+                                saveAmount(
+                                  row.id
+                                )
+                              }
                               disabled={saving}
-                              className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                             >
                               Save
                             </button>
 
                             <button
-                              onClick={() => {
-                                setEditingId(null);
-                                setEditAmount('');
-                              }}
-                              className="rounded-lg border px-3 py-2 text-sm"
+                              className="btn secondary small"
+                              onClick={
+                                cancelEditing
+                              }
                             >
                               Cancel
                             </button>
                           </div>
                         ) : (
                           <button
-                            onClick={() => {
-                              setEditingId(row.id);
-                              setEditAmount(
-                                String(row.amount ?? '')
-                              );
-                            }}
-                            className="rounded-lg border px-3 py-2 text-sm font-semibold"
+                            className="fee-edit"
+                            onClick={() =>
+                              startEditing(row)
+                            }
                           >
                             Edit
                           </button>
-                        )
-                      )}
+                        ))}
                     </td>
                   </tr>
                 ))}
@@ -1068,9 +1419,27 @@ export default function FeeStructurePage() {
                   <tr>
                     <td
                       colSpan={5}
-                      className="px-3 py-8 text-center text-slate-500"
+                      style={{
+                        textAlign: 'center',
+                        padding: 40,
+                      }}
                     >
-                      No one-time fee structures configured yet.
+                      <div className="empty">
+                        <strong>
+                          No one-time fees
+                          configured yet.
+                        </strong>
+
+                        <p>
+                          Special charges such
+                          as admission, books,
+                          tie &amp; belt,
+                          Republic Day,
+                          Independence Day
+                          and Saraswati Puja
+                          can be added here.
+                        </p>
+                      </div>
                     </td>
                   </tr>
                 )}
