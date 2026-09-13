@@ -9,7 +9,7 @@ type AcademicYear = {
   start_date: string | null;
   end_date: string | null;
   is_active: boolean;
-  is_locked: boolean;
+  is_locked?: boolean;
 };
 
 type FeeHead = {
@@ -205,7 +205,7 @@ export default function FeeStructurePage() {
 
     if (yearsResult.error) {
       setError(
-        yearsResult.error.message
+        `Academic years: ${yearsResult.error.message}`
       );
       setLoading(false);
       return;
@@ -213,7 +213,7 @@ export default function FeeStructurePage() {
 
     if (headsResult.error) {
       setError(
-        headsResult.error.message
+        `Fee heads: ${headsResult.error.message}`
       );
       setLoading(false);
       return;
@@ -221,28 +221,55 @@ export default function FeeStructurePage() {
 
     if (structuresResult.error) {
       setError(
-        structuresResult.error.message
+        `Fee structures: ${structuresResult.error.message}`
       );
       setLoading(false);
       return;
     }
 
     setYears(
-      yearsResult.data || []
+      (yearsResult.data ||
+        []) as AcademicYear[]
     );
 
     setHeads(
-      headsResult.data || []
+      (headsResult.data ||
+        []) as FeeHead[]
     );
 
+    /*
+     * IMPORTANT:
+     *
+     * Supabase returns the related fee_heads
+     * relationship as an array.
+     *
+     * Our application uses a single FeeHead
+     * object, so normalize it here.
+     */
+    const normalizedStructures =
+      (structuresResult.data || []).map(
+        (structure) => ({
+          ...structure,
+
+          fee_heads:
+            Array.isArray(
+              structure.fee_heads
+            )
+              ? structure.fee_heads[0] ||
+                null
+              : structure.fee_heads ||
+                null,
+        })
+      ) as unknown as FeeStructure[];
+
     setStructures(
-      (structuresResult.data ||
-        []) as FeeStructure[]
+      normalizedStructures
     );
 
     const activeYear =
       (yearsResult.data || []).find(
-        (year) => year.is_active
+        (year) =>
+          year.is_active
       ) ||
       (yearsResult.data || [])[0];
 
@@ -319,10 +346,17 @@ export default function FeeStructurePage() {
     area: string
   ) {
     return vehicleFees.find(
-      (structure) =>
-        structure.vehicle_area?.includes(
-          area
-        )
+      (structure) => {
+        const configuredArea =
+          (
+            structure.vehicle_area ||
+            ''
+          ).toLowerCase();
+
+        return configuredArea.includes(
+          area.toLowerCase()
+        );
+      }
     );
   }
 
@@ -359,7 +393,9 @@ export default function FeeStructurePage() {
         .eq('id', id);
 
     if (error) {
-      setError(error.message);
+      setError(
+        error.message
+      );
       setSaving(false);
       return;
     }
@@ -499,7 +535,9 @@ export default function FeeStructurePage() {
           error: copyError,
         } = await sb
           .from('fee_structures')
-          .insert(copiedRows);
+          .insert(
+            copiedRows
+          );
 
         if (copyError) {
           setError(
@@ -514,20 +552,23 @@ export default function FeeStructurePage() {
       }
     }
 
+    const createdName =
+      newYearName;
+
     setNewYearName('');
     setNewYearStart('');
     setNewYearEnd('');
 
+    setSelectedYear(
+      newYear.id
+    );
+
     setMessage(
-      `${newYearName} created successfully${
+      `${createdName} created successfully${
         copyPrevious
           ? ' with previous fees copied.'
           : '.'
       }`
-    );
-
-    setSelectedYear(
-      newYear.id
     );
 
     await loadData();
@@ -544,7 +585,9 @@ export default function FeeStructurePage() {
           item.id === id
       );
 
-    if (!year) return;
+    if (!year) {
+      return;
+    }
 
     if (
       !confirm(
@@ -703,12 +746,16 @@ export default function FeeStructurePage() {
   }
 
   async function addMissingSchoolFee(
-    className: string,
-    amount: number
+    className: string
   ) {
+    /*
+     * This is only a starter value.
+     * You can edit the amount immediately
+     * after adding it.
+     */
     await addFeeStructure(
       'Composite Fee',
-      amount,
+      0,
       {
         className,
         frequency:
@@ -716,7 +763,7 @@ export default function FeeStructurePage() {
         pricingType:
           'fixed',
         applicableTo:
-          'all',
+          'class',
       }
     );
   }
@@ -749,10 +796,13 @@ export default function FeeStructurePage() {
       {
         frequency:
           'Monthly',
+
         vehicleArea:
           `${route} - ${area}`,
+
         applicableTo:
           'vehicle_area',
+
         pricingType:
           'fixed',
       }
@@ -761,68 +811,131 @@ export default function FeeStructurePage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-slate-50 p-8">
-        <div className="rounded-2xl bg-white p-8 shadow-sm">
-          Loading fee structure...
+      <main className="main">
+        <div className="page-head">
+          <div>
+            <p
+              style={{
+                margin: 0,
+                color: '#2563eb',
+                fontSize: 13,
+                fontWeight: 800,
+              }}
+            >
+              FEE MANAGEMENT
+            </p>
+
+            <h1>
+              Fee Structure
+            </h1>
+
+            <p className="muted">
+              Loading fee structure...
+            </p>
+          </div>
+        </div>
+
+        <div className="card">
+          Loading...
         </div>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 p-6 md:p-8">
-      <div className="mx-auto max-w-7xl space-y-6">
+    <main className="main">
+
+      <div
+        style={{
+          maxWidth: 1250,
+          margin: '0 auto',
+        }}
+      >
 
         {/* HEADER */}
 
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="page-head">
 
           <div>
-            <p className="text-sm font-semibold text-blue-700">
+            <p
+              style={{
+                margin: 0,
+                color: '#2563eb',
+                fontSize: 13,
+                fontWeight: 800,
+                letterSpacing:
+                  '0.06em',
+              }}
+            >
               FEE MANAGEMENT
             </p>
 
-            <h1 className="text-3xl font-bold text-slate-900">
+            <h1>
               Fee Structure
             </h1>
 
-            <p className="mt-1 text-slate-500">
+            <p className="muted">
               Manage fees separately for every academic year.
             </p>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-
-            {/* NEW BUTTON */}
+          <div className="actions">
 
             <a
               href="/admin/charges"
-              className="rounded-xl bg-blue-700 px-5 py-3 text-center font-semibold text-white shadow-sm transition hover:bg-blue-800"
+              className="btn"
+              style={{
+                padding:
+                  '12px 18px',
+                background:
+                  '#2563eb',
+              }}
             >
               ⚡ Generate Monthly Fees
             </a>
 
-            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-              <p className="text-xs font-medium text-slate-500">
+            <div
+              className="card"
+              style={{
+                padding:
+                  '12px 16px',
+                minWidth:
+                  150,
+              }}
+            >
+              <div
+                className="metric-label"
+              >
                 ACTIVE SESSION
-              </p>
+              </div>
 
-              <p className="font-bold text-slate-900">
+              <div
+                style={{
+                  fontWeight: 800,
+                  marginTop: 4,
+                }}
+              >
                 {years.find(
                   (year) =>
                     year.is_active
                 )?.name ||
                   'Not selected'}
-              </p>
+              </div>
             </div>
 
           </div>
+
         </div>
 
-        {/* ERROR */}
+        {/* MESSAGES */}
 
         {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div
+            className="error"
+            style={{
+              marginBottom: 18,
+            }}
+          >
             <strong>
               Error:
             </strong>{' '}
@@ -830,58 +943,75 @@ export default function FeeStructurePage() {
           </div>
         )}
 
-        {/* SUCCESS */}
-
         {message && (
-          <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+          <div
+            className="success"
+            style={{
+              marginBottom: 18,
+            }}
+          >
             {message}
           </div>
         )}
 
-        {/* ACADEMIC YEAR */}
+        {/* SESSION */}
 
-        <section className="rounded-2xl bg-white p-6 shadow-sm">
+        <section className="card">
 
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <h2>
+            Academic Year
+          </h2>
 
-            <div className="w-full lg:max-w-sm">
+          <p className="muted">
+            Select the session whose fee structure you want to manage.
+          </p>
 
-              <label className="mb-2 block text-sm font-semibold text-slate-700">
-                Academic Year
-              </label>
+          <div
+            style={{
+              display: 'flex',
+              gap: 12,
+              alignItems:
+                'center',
+              flexWrap:
+                'wrap',
+              marginTop: 16,
+            }}
+          >
 
-              <select
-                value={selectedYear}
-                onChange={(event) =>
-                  setSelectedYear(
-                    event.target.value
-                  )
-                }
-                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-blue-600"
-              >
-                {years.map(
-                  (year) => (
-                    <option
-                      key={year.id}
-                      value={year.id}
-                    >
-                      {year.name}
-                      {year.is_active
-                        ? ' — ACTIVE'
-                        : ''}
-                      {year.is_locked
-                        ? ' — LOCKED'
-                        : ''}
-                    </option>
-                  )
-                )}
-              </select>
-
-            </div>
+            <select
+              className="select"
+              value={selectedYear}
+              onChange={(event) =>
+                setSelectedYear(
+                  event.target.value
+                )
+              }
+              style={{
+                maxWidth: 380,
+              }}
+            >
+              {years.map(
+                (year) => (
+                  <option
+                    key={year.id}
+                    value={year.id}
+                  >
+                    {year.name}
+                    {year.is_active
+                      ? ' — ACTIVE'
+                      : ''}
+                    {year.is_locked
+                      ? ' — LOCKED'
+                      : ''}
+                  </option>
+                )
+              )}
+            </select>
 
             {selectedYearData &&
               !selectedYearData.is_active && (
                 <button
+                  type="button"
                   onClick={() =>
                     activateYear(
                       selectedYear
@@ -891,12 +1021,9 @@ export default function FeeStructurePage() {
                     saving ||
                     selectedYearData.is_locked
                   }
-                  className="rounded-xl bg-blue-700 px-5 py-3 font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
+                  className="btn"
                 >
-                  Activate{' '}
-                  {
-                    selectedYearData.name
-                  }
+                  Activate Session
                 </button>
               )}
 
@@ -904,26 +1031,35 @@ export default function FeeStructurePage() {
 
         </section>
 
-        {/* CREATE NEW YEAR */}
+        {/* CREATE YEAR */}
 
-        <section className="rounded-2xl bg-white p-6 shadow-sm">
+        <section
+          className="card"
+          style={{
+            marginTop: 18,
+          }}
+        >
 
-          <h2 className="text-xl font-bold text-slate-900">
+          <h2>
             Create New Academic Year
           </h2>
 
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="muted">
             Create the next session without changing historical fees.
           </p>
 
-          <div className="mt-5 grid gap-4 md:grid-cols-3">
+          <div
+            className="grid2"
+            style={{
+              marginTop: 18,
+            }}
+          >
 
-            <div>
-              <label className="mb-2 block text-sm font-semibold">
-                Session
-              </label>
+            <label className="label">
+              Session
 
               <input
+                className="input"
                 value={newYearName}
                 onChange={(event) =>
                   setNewYearName(
@@ -931,16 +1067,14 @@ export default function FeeStructurePage() {
                   )
                 }
                 placeholder="2027-28"
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-600"
               />
-            </div>
+            </label>
 
-            <div>
-              <label className="mb-2 block text-sm font-semibold">
-                Start Date
-              </label>
+            <label className="label">
+              Start Date
 
               <input
+                className="input"
                 type="date"
                 value={newYearStart}
                 onChange={(event) =>
@@ -948,16 +1082,14 @@ export default function FeeStructurePage() {
                     event.target.value
                   )
                 }
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-600"
               />
-            </div>
+            </label>
 
-            <div>
-              <label className="mb-2 block text-sm font-semibold">
-                End Date
-              </label>
+            <label className="label">
+              End Date
 
               <input
+                className="input"
                 type="date"
                 value={newYearEnd}
                 onChange={(event) =>
@@ -965,42 +1097,52 @@ export default function FeeStructurePage() {
                     event.target.value
                   )
                 }
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-600"
               />
-            </div>
+            </label>
 
           </div>
 
-          <label className="mt-5 flex items-center gap-3 text-sm">
+          <label
+            style={{
+              display: 'flex',
+              gap: 9,
+              alignItems:
+                'center',
+              marginTop: 18,
+              fontSize: 14,
+              fontWeight: 600,
+            }}
+          >
 
             <input
               type="checkbox"
-              checked={copyPrevious}
+              checked={
+                copyPrevious
+              }
               onChange={(event) =>
                 setCopyPrevious(
                   event.target.checked
                 )
               }
-              className="h-4 w-4"
             />
 
-            <span>
-              Copy{' '}
-              {
-                selectedYearData?.name ||
-                'previous'
-              }{' '}
-              fee structure into the new session
-            </span>
+            Copy{' '}
+            {selectedYearData?.name ||
+              'previous'}{' '}
+            fee structure into the new session
 
           </label>
 
           <button
+            type="button"
             onClick={
               createNewAcademicYear
             }
             disabled={saving}
-            className="mt-5 rounded-xl bg-slate-900 px-6 py-3 font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+            className="btn"
+            style={{
+              marginTop: 18,
+            }}
           >
             {saving
               ? 'Saving...'
@@ -1009,46 +1151,50 @@ export default function FeeStructurePage() {
 
         </section>
 
-        {/* SCHOOL FEES */}
+        {/* SCHOOL FEE */}
 
-        <section className="rounded-2xl bg-white p-6 shadow-sm">
+        <section
+          className="card"
+          style={{
+            marginTop: 18,
+          }}
+        >
 
-          <div className="mb-5">
+          <h2>
+            School / Composite Fee
+          </h2>
 
-            <h2 className="text-xl font-bold text-slate-900">
-              School / Composite Fee
-            </h2>
+          <p className="muted">
+            Monthly school fee for the selected academic year.
+          </p>
 
-            <p className="text-sm text-slate-500">
-              Monthly school fee for the selected academic year.
-            </p>
+          <div
+            className="table-wrap"
+            style={{
+              marginTop: 18,
+            }}
+          >
 
-          </div>
-
-          <div className="overflow-x-auto">
-
-            <table className="w-full min-w-[650px]">
+            <table className="table">
 
               <thead>
 
-                <tr className="border-b text-left text-sm text-slate-500">
-
-                  <th className="px-3 py-3">
+                <tr>
+                  <th>
                     Class
                   </th>
 
-                  <th className="px-3 py-3">
+                  <th>
                     Monthly Fee
                   </th>
 
-                  <th className="px-3 py-3">
+                  <th>
                     Frequency
                   </th>
 
-                  <th className="px-3 py-3">
+                  <th>
                     Action
                   </th>
-
                 </tr>
 
               </thead>
@@ -1068,14 +1214,17 @@ export default function FeeStructurePage() {
                         key={
                           className
                         }
-                        className="border-b last:border-0"
                       >
 
-                        <td className="px-3 py-4 font-semibold">
-                          {className}
+                        <td>
+                          <strong>
+                            {
+                              className
+                            }
+                          </strong>
                         </td>
 
-                        <td className="px-3 py-4">
+                        <td>
 
                           {row ? (
 
@@ -1084,6 +1233,7 @@ export default function FeeStructurePage() {
 
                               <input
                                 type="number"
+                                min="0"
                                 value={
                                   editAmount
                                 }
@@ -1091,16 +1241,21 @@ export default function FeeStructurePage() {
                                   event
                                 ) =>
                                   setEditAmount(
-                                    event.target
+                                    event
+                                      .target
                                       .value
                                   )
                                 }
-                                className="w-32 rounded-lg border border-slate-300 px-3 py-2"
+                                className="input"
+                                style={{
+                                  maxWidth:
+                                    150,
+                                }}
                               />
 
                             ) : (
 
-                              <span className="font-bold">
+                              <strong>
                                 ₹
                                 {Number(
                                   row.amount ||
@@ -1108,13 +1263,13 @@ export default function FeeStructurePage() {
                                 ).toLocaleString(
                                   'en-IN'
                                 )}
-                              </span>
+                              </strong>
 
                             )
 
                           ) : (
 
-                            <span className="text-slate-400">
+                            <span className="muted">
                               Not configured
                             </span>
 
@@ -1122,21 +1277,22 @@ export default function FeeStructurePage() {
 
                         </td>
 
-                        <td className="px-3 py-4 text-sm text-slate-500">
+                        <td>
                           {row?.frequency ||
                             'Monthly'}
                         </td>
 
-                        <td className="px-3 py-4">
+                        <td>
 
                           {row ? (
 
                             editingId ===
                             row.id ? (
 
-                              <div className="flex gap-2">
+                              <div className="actions">
 
                                 <button
+                                  type="button"
                                   onClick={() =>
                                     saveAmount(
                                       row.id
@@ -1145,21 +1301,23 @@ export default function FeeStructurePage() {
                                   disabled={
                                     saving
                                   }
-                                  className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                                  className="btn small"
                                 >
                                   Save
                                 </button>
 
                                 <button
+                                  type="button"
+                                  className="btn secondary small"
                                   onClick={() => {
                                     setEditingId(
                                       null
                                     );
+
                                     setEditAmount(
                                       ''
                                     );
                                   }}
-                                  className="rounded-lg border px-3 py-2 text-sm"
                                 >
                                   Cancel
                                 </button>
@@ -1169,6 +1327,8 @@ export default function FeeStructurePage() {
                             ) : (
 
                               <button
+                                type="button"
+                                className="btn secondary small"
                                 onClick={() => {
                                   setEditingId(
                                     row.id
@@ -1181,7 +1341,6 @@ export default function FeeStructurePage() {
                                     )
                                   );
                                 }}
-                                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold hover:bg-slate-50"
                               >
                                 Edit
                               </button>
@@ -1191,31 +1350,16 @@ export default function FeeStructurePage() {
                           ) : (
 
                             <button
+                              type="button"
+                              className="btn small"
+                              disabled={
+                                saving
+                              }
                               onClick={() =>
                                 addMissingSchoolFee(
-                                  className,
-                                  [
-                                    'Nursery',
-                                    'LKG',
-                                    'UKG',
-                                  ].includes(
-                                    className
-                                  )
-                                    ? 600
-                                    : [
-                                        'I',
-                                        'II',
-                                        'III',
-                                        'IV',
-                                      ].includes(
-                                        className
-                                      )
-                                    ? 650
-                                    : 700
+                                  className
                                 )
                               }
-                              disabled={saving}
-                              className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                             >
                               Add
                             </button>
@@ -1239,47 +1383,59 @@ export default function FeeStructurePage() {
 
         {/* HOSTEL */}
 
-        <section className="rounded-2xl bg-white p-6 shadow-sm">
+        <section
+          className="card"
+          style={{
+            marginTop: 18,
+          }}
+        >
 
-          <h2 className="text-xl font-bold text-slate-900">
+          <h2>
             Hostel Fee
           </h2>
 
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="muted">
             Applied only to students marked as hostellers.
           </p>
 
-          <div className="mt-5 rounded-xl border border-slate-200 p-5">
+          <div
+            style={{
+              marginTop: 18,
+            }}
+          >
 
             {findHostelFee() ? (
 
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent:
+                    'space-between',
+                  alignItems:
+                    'center',
+                  gap: 15,
+                  flexWrap:
+                    'wrap',
+                  padding: 18,
+                  border:
+                    '1px solid #e7ebf2',
+                  borderRadius:
+                    14,
+                }}
+              >
 
                 <div>
 
-                  <p className="text-sm text-slate-500">
+                  <div className="metric-label">
                     Monthly Hostel Fee
-                  </p>
+                  </div>
 
-                  <p className="text-2xl font-bold">
-                    ₹
-                    {Number(
-                      findHostelFee()?.amount ||
-                        0
-                    ).toLocaleString(
-                      'en-IN'
-                    )}
-                  </p>
-
-                </div>
-
-                {editingId ===
-                findHostelFee()?.id ? (
-
-                  <div className="flex gap-2">
+                  {editingId ===
+                  findHostelFee()?.id ? (
 
                     <input
                       type="number"
+                      min="0"
                       value={
                         editAmount
                       }
@@ -1291,21 +1447,72 @@ export default function FeeStructurePage() {
                             .value
                         )
                       }
-                      className="w-32 rounded-lg border px-3 py-2"
+                      className="input"
+                      style={{
+                        marginTop: 8,
+                        maxWidth:
+                          180,
+                      }}
                     />
 
+                  ) : (
+
+                    <div
+                      style={{
+                        fontSize: 26,
+                        fontWeight: 800,
+                        marginTop: 5,
+                      }}
+                    >
+                      ₹
+                      {Number(
+                        findHostelFee()
+                          ?.amount ||
+                          0
+                      ).toLocaleString(
+                        'en-IN'
+                      )}
+                    </div>
+
+                  )}
+
+                </div>
+
+                {editingId ===
+                findHostelFee()?.id ? (
+
+                  <div className="actions">
+
                     <button
+                      type="button"
+                      className="btn small"
                       onClick={() =>
                         saveAmount(
-                          findHostelFee()!.id
+                          findHostelFee()!
+                            .id
                         )
                       }
                       disabled={
                         saving
                       }
-                      className="rounded-lg bg-blue-700 px-4 py-2 text-white disabled:opacity-50"
                     >
                       Save
+                    </button>
+
+                    <button
+                      type="button"
+                      className="btn secondary small"
+                      onClick={() => {
+                        setEditingId(
+                          null
+                        );
+
+                        setEditAmount(
+                          ''
+                        );
+                      }}
+                    >
+                      Cancel
                     </button>
 
                   </div>
@@ -1313,9 +1520,12 @@ export default function FeeStructurePage() {
                 ) : (
 
                   <button
+                    type="button"
+                    className="btn secondary"
                     onClick={() => {
                       setEditingId(
-                        findHostelFee()!.id
+                        findHostelFee()!
+                          .id
                       );
 
                       setEditAmount(
@@ -1326,7 +1536,6 @@ export default function FeeStructurePage() {
                         )
                       );
                     }}
-                    className="rounded-lg border px-4 py-2 font-semibold"
                   >
                     Edit
                   </button>
@@ -1338,11 +1547,14 @@ export default function FeeStructurePage() {
             ) : (
 
               <button
+                type="button"
+                className="btn"
+                disabled={
+                  saving
+                }
                 onClick={
                   addMissingHostelFee
                 }
-                disabled={saving}
-                className="rounded-lg bg-blue-700 px-4 py-2 font-semibold text-white disabled:opacity-50"
               >
                 Add Hostel Fee ₹4,000
               </button>
@@ -1355,41 +1567,47 @@ export default function FeeStructurePage() {
 
         {/* VEHICLE */}
 
-        <section className="rounded-2xl bg-white p-6 shadow-sm">
+        <section
+          className="card"
+          style={{
+            marginTop: 18,
+          }}
+        >
 
-          <div className="mb-5">
+          <h2>
+            Vehicle / Van Fee
+          </h2>
 
-            <h2 className="text-xl font-bold text-slate-900">
-              Vehicle / Van Fee
-            </h2>
+          <p className="muted">
+            Route-specific monthly fee. Students are matched using their vehicle area.
+          </p>
 
-            <p className="mt-1 text-sm text-slate-500">
-              Route-specific monthly fee. A student will have one selected route.
-            </p>
+          <div
+            className="table-wrap"
+            style={{
+              marginTop: 18,
+            }}
+          >
 
-          </div>
-
-          <div className="overflow-x-auto">
-
-            <table className="w-full min-w-[750px]">
+            <table className="table">
 
               <thead>
 
-                <tr className="border-b text-left text-sm text-slate-500">
+                <tr>
 
-                  <th className="px-3 py-3">
+                  <th>
                     Route
                   </th>
 
-                  <th className="px-3 py-3">
+                  <th>
                     Area
                   </th>
 
-                  <th className="px-3 py-3">
+                  <th>
                     Monthly Fee
                   </th>
 
-                  <th className="px-3 py-3">
+                  <th>
                     Action
                   </th>
 
@@ -1412,18 +1630,21 @@ export default function FeeStructurePage() {
                         key={
                           route.route
                         }
-                        className="border-b last:border-0"
                       >
 
-                        <td className="px-3 py-4 font-semibold">
-                          {route.route}
+                        <td>
+                          <strong>
+                            {
+                              route.route
+                            }
+                          </strong>
                         </td>
 
-                        <td className="px-3 py-4">
+                        <td>
                           {route.area}
                         </td>
 
-                        <td className="px-3 py-4">
+                        <td>
 
                           {row ? (
 
@@ -1432,6 +1653,7 @@ export default function FeeStructurePage() {
 
                               <input
                                 type="number"
+                                min="0"
                                 value={
                                   editAmount
                                 }
@@ -1439,16 +1661,21 @@ export default function FeeStructurePage() {
                                   event
                                 ) =>
                                   setEditAmount(
-                                    event.target
+                                    event
+                                      .target
                                       .value
                                   )
                                 }
-                                className="w-32 rounded-lg border px-3 py-2"
+                                className="input"
+                                style={{
+                                  maxWidth:
+                                    150,
+                                }}
                               />
 
                             ) : (
 
-                              <span className="font-bold">
+                              <strong>
                                 ₹
                                 {Number(
                                   row.amount ||
@@ -1456,13 +1683,13 @@ export default function FeeStructurePage() {
                                 ).toLocaleString(
                                   'en-IN'
                                 )}
-                              </span>
+                              </strong>
 
                             )
 
                           ) : (
 
-                            <span className="text-slate-400">
+                            <span className="muted">
                               Not configured
                             </span>
 
@@ -1470,16 +1697,18 @@ export default function FeeStructurePage() {
 
                         </td>
 
-                        <td className="px-3 py-4">
+                        <td>
 
                           {row ? (
 
                             editingId ===
                             row.id ? (
 
-                              <div className="flex gap-2">
+                              <div className="actions">
 
                                 <button
+                                  type="button"
+                                  className="btn small"
                                   onClick={() =>
                                     saveAmount(
                                       row.id
@@ -1488,12 +1717,13 @@ export default function FeeStructurePage() {
                                   disabled={
                                     saving
                                   }
-                                  className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                                 >
                                   Save
                                 </button>
 
                                 <button
+                                  type="button"
+                                  className="btn secondary small"
                                   onClick={() => {
                                     setEditingId(
                                       null
@@ -1503,7 +1733,6 @@ export default function FeeStructurePage() {
                                       ''
                                     );
                                   }}
-                                  className="rounded-lg border px-3 py-2 text-sm"
                                 >
                                   Cancel
                                 </button>
@@ -1513,6 +1742,8 @@ export default function FeeStructurePage() {
                             ) : (
 
                               <button
+                                type="button"
+                                className="btn secondary small"
                                 onClick={() => {
                                   setEditingId(
                                     row.id
@@ -1525,7 +1756,6 @@ export default function FeeStructurePage() {
                                     )
                                   );
                                 }}
-                                className="rounded-lg border px-3 py-2 text-sm font-semibold"
                               >
                                 Edit
                               </button>
@@ -1535,6 +1765,11 @@ export default function FeeStructurePage() {
                           ) : (
 
                             <button
+                              type="button"
+                              className="btn small"
+                              disabled={
+                                saving
+                              }
                               onClick={() =>
                                 addMissingVehicleFee(
                                   route.route,
@@ -1542,10 +1777,6 @@ export default function FeeStructurePage() {
                                   route.amount
                                 )
                               }
-                              disabled={
-                                saving
-                              }
-                              className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                             >
                               Add
                             </button>
@@ -1567,44 +1798,55 @@ export default function FeeStructurePage() {
 
         </section>
 
-        {/* ONE-TIME / MISC */}
+        {/* ONE TIME FEES */}
 
-        <section className="rounded-2xl bg-white p-6 shadow-sm">
+        <section
+          className="card"
+          style={{
+            marginTop: 18,
+            marginBottom: 30,
+          }}
+        >
 
-          <h2 className="text-xl font-bold text-slate-900">
+          <h2>
             One-time / Miscellaneous Fees
           </h2>
 
-          <p className="mt-1 text-sm text-slate-500">
-            Admission, registration, books, tie &amp; belt,
-            festivals, examination and other charges will appear here.
+          <p className="muted">
+            Admission, books, tie &amp; belt, festivals,
+            examination and other charges.
           </p>
 
-          <div className="mt-5 overflow-x-auto">
+          <div
+            className="table-wrap"
+            style={{
+              marginTop: 18,
+            }}
+          >
 
-            <table className="w-full min-w-[700px]">
+            <table className="table">
 
               <thead>
 
-                <tr className="border-b text-left text-sm text-slate-500">
+                <tr>
 
-                  <th className="px-3 py-3">
+                  <th>
                     Fee Head
                   </th>
 
-                  <th className="px-3 py-3">
+                  <th>
                     Amount
                   </th>
 
-                  <th className="px-3 py-3">
+                  <th>
                     Pricing
                   </th>
 
-                  <th className="px-3 py-3">
+                  <th>
                     Frequency
                   </th>
 
-                  <th className="px-3 py-3">
+                  <th>
                     Action
                   </th>
 
@@ -1618,17 +1860,20 @@ export default function FeeStructurePage() {
                   (row) => (
 
                     <tr
-                      key={row.id}
-                      className="border-b last:border-0"
+                      key={
+                        row.id
+                      }
                     >
 
-                      <td className="px-3 py-4 font-semibold">
-                        {row.fee_heads
-                          ?.name ||
-                          'Fee'}
+                      <td>
+                        <strong>
+                          {row.fee_heads
+                            ?.name ||
+                            'Fee'}
+                        </strong>
                       </td>
 
-                      <td className="px-3 py-4 font-bold">
+                      <td>
 
                         {row.pricing_type ===
                         'actual'
@@ -1642,25 +1887,27 @@ export default function FeeStructurePage() {
 
                       </td>
 
-                      <td className="px-3 py-4">
-
+                      <td>
                         {row.pricing_type ===
                         'actual'
-                          ? 'As per actual'
+                          ? 'Actual'
                           : 'Fixed'}
-
                       </td>
 
-                      <td className="px-3 py-4">
-                        {row.frequency}
+                      <td>
+                        {
+                          row.frequency
+                        }
                       </td>
 
-                      <td className="px-3 py-4">
+                      <td>
 
-                        {row.pricing_type ===
-                          'fixed' && (
+                        {row.pricing_type !==
+                          'actual' && (
 
                           <button
+                            type="button"
+                            className="btn secondary small"
                             onClick={() => {
                               setEditingId(
                                 row.id
@@ -1673,7 +1920,6 @@ export default function FeeStructurePage() {
                                 )
                               );
                             }}
-                            className="rounded-lg border px-3 py-2 text-sm font-semibold"
                           >
                             Edit
                           </button>
@@ -1694,7 +1940,7 @@ export default function FeeStructurePage() {
 
                     <td
                       colSpan={5}
-                      className="px-3 py-8 text-center text-slate-500"
+                      className="empty"
                     >
                       No one-time fee
                       structures configured
@@ -1714,6 +1960,7 @@ export default function FeeStructurePage() {
         </section>
 
       </div>
+
     </main>
   );
 }
